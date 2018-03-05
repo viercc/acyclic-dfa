@@ -45,3 +45,17 @@ test-suite adfa-test
   ghc-options: -Wall -O2 -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
+benchmark adfa-benchmark
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      bench
+  main-is:             adfa-benchmark.hs
+  build-depends:       base,
+                       deepseq,
+                       containers,
+                       criterion,
+                       vector,
+                       mwc-random,
+                       acyclic-dfa,
+                       trie-simple
+  ghc-options:         -Wall -O2 -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
