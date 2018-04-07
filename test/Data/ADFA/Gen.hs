@@ -93,7 +93,7 @@ reasonablySizedADFA :: Int -> ADFA c -> Bool
 reasonablySizedADFA n dfa =
   let sc = stringCount dfa
       lo = sqrti n
-      hi = n * n
+      hi = n * sqrti n
   in lo <= sc && sc <= hi
 
 acceptStrs :: ADFA c -> Gen [[c]]
