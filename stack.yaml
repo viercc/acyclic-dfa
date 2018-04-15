@@ -37,12 +37,12 @@ resolver: nightly-2017-12-01
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - '.'
-- location: '../trie-simple'
-  extra-dep: true
 
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
-extra-deps: []
+extra-deps:
+- git: https://github.com/viercc/trie-simple.git
+  commit: bda891f944a405fb3162d451a1796b7d9bd1acb8
 
 # Override default flag values for local packages and extra-deps
 flags: {}
