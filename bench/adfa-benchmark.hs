@@ -56,7 +56,10 @@ benchADFA = bgroup "ADFA"
         , bench "stringCount" (nf ADFA.stringCount dfa)
         , bench "enumerate10" (nf (take 10 . ADFA.enumerate) dfa)
         , env randomStrs $ \qs ->
-            bench "match" (nf (\dfa' -> map (ADFA.match dfa') qs) dfa) ]
+            bench "match" (nf (\dfa' -> map (ADFA.match dfa') qs) dfa)
+        , bench "eqv1" (nf (ADFA.equivalent dfa) dfa)
+        , env (ADFA.minify . ADFA.fromList <$> dictBrEn) $ \dfa' ->
+            bench "eqv2" (nf (ADFA.equivalent dfa) dfa') ]
   , env (ADFA.fromList <$> dictAmEn) $ \dfa ->
     env (return $ ADFA.minify dfa) $ \dfa' ->
       bgroup "optimize"
@@ -87,7 +90,10 @@ benchTrie = bgroup "Trie"
         , bench "stringCount" (nf T.count dict)
         , bench "enumerate10" (nf (take 10 . T.enumerate) dict)
         , env randomStrs $ \qs ->
-            bench "match" (nf (\dict' -> map (`T.member` dict') qs) dict) ]
+            bench "match" (nf (\dict' -> map (`T.member` dict') qs) dict)
+        , bench "eqv1" (nf (dict ==) dict)
+        , env (T.fromList <$> dictBrEn) $ \dict' ->
+            bench "eqv2" (nf (dict ==) dict')]
   , env (T.fromList <$> dictAmEn) $ \dictA ->
     env (T.fromList <$> dictBrEn) $ \dictB ->
     env (T.fromList <$> randomStrs) $ \dictSmall ->
@@ -107,16 +113,19 @@ benchSet = bgroup "Set"
       -- and switch the algorithm based on it.
       -- Using shuffled dictionary avoids this optimization fires
       -- in this benchmark.
-      [ env dictAmEnShuffled $ \dict -> bench "fromList" $ nf T.fromList dict
+      [ env dictAmEnShuffled $ \dict -> bench "fromList" $ nf Set.fromList dict
       , env (sort <$> dictAmEn) $ \sortedDict ->
-          bench "fromAscList" $ nf T.fromAscList sortedDict ]
+          bench "fromAscList" $ nf Set.fromAscList sortedDict ]
   , env (Set.fromList <$> dictAmEn) $ \dictSet ->
       bgroup "query"
         [ bench "isEmpty" (nf Set.null dictSet)
         , bench "stringCount" (nf Set.size dictSet)
         , bench "enumerate10" (nf (take 10 . Set.toList) dictSet)
         , env randomStrs $ \qs ->
-            bench "match" (nf (\dictSet' -> map (`Set.member` dictSet') qs) dictSet) ]
+            bench "match" (nf (\dictSet' -> map (`Set.member` dictSet') qs) dictSet)
+        , bench "eqv1" (nf (dictSet ==) dictSet)
+        , env (Set.fromList <$> dictBrEn) $ \dictSet' ->
+            bench "eqv2" (nf (dictSet ==) dictSet')]
   , env (Set.fromList <$> dictAmEn) $ \dictA ->
     env (Set.fromList <$> dictBrEn) $ \dictB ->
     env (Set.fromList <$> randomStrs) $ \dictSmall ->

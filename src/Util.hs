@@ -6,10 +6,19 @@ import qualified Data.Set        as Set
 
 import qualified Queue           as Q
 
-trisect :: (Ord k) => Map k a -> Map k b -> (Map k a, Map k (a,b), Map k b)
-trisect ma mb = (Map.difference ma mb,
-                 Map.intersectionWith (,) ma mb,
-                 Map.difference mb ma)
+-- | Two inputs must be sorted in ascending order.
+trisectList :: (Ord k) =>
+  [(k,a)] -> [(k,b)] -> ([(k,a)], [(k,(a,b))], [(k,b)])
+trisectList [] bs = ([], [], bs)
+trisectList as [] = (as, [], [])
+trisectList as@((ka, a):as') bs@((kb,b):bs') =
+  case compare ka kb of
+    LT -> case trisectList as bs' of
+      (onlyA, both, onlyB) -> ((ka,a) : onlyA, both, onlyB)
+    EQ -> case trisectList as' bs' of
+      (onlyA, both, onlyB) -> (onlyA, (ka,(a,b)) : both, onlyB)
+    GT -> case trisectList as' bs of
+      (onlyA, both, onlyB) -> (onlyA, both, (kb,b) : onlyB)
 
 topologicalSort :: (Ord k) => k -> (k -> v) -> (v -> [k]) -> [(k,v)]
 topologicalSort root nodeOf childrenOf =

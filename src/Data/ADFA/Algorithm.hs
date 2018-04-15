@@ -80,11 +80,13 @@ equivalent dfaA dfaB = eqv (rootNode dfaA', rootNode dfaB')
     eqv (a,b) =
       let Node acceptsA edgesA = dfaA' ! a
           Node acceptsB edgesB = dfaB' ! b
-          (onlyA, both, onlyB) = trisect edgesA edgesB
+          (onlyA, both, onlyB) =
+            trisectList (Map.toAscList edgesA)
+                        (Map.toAscList edgesB)
       in acceptsA == acceptsB &&
-         Map.null onlyA &&
-         Map.null onlyB &&
-         all eqv both
+         null onlyA &&
+         null onlyB &&
+         all (eqv . snd) both
 
 -----------------------------------------------------
 
