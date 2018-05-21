@@ -1,8 +1,11 @@
 {-| Acyclic Deterministic Finite State Automaton for finite language -}
 module Data.ADFA(
   ADFA(),
-  NodeId(),
-  rootNode, nodeList, edgeList,
+  Node(),
+  toTable,
+  fromTable,
+  nodeList,
+  edgeList,
   -- * Construction
   empty, string, strings,
   -- * Query
@@ -29,11 +32,11 @@ import qualified Data.Map.Strict as Map
 unions :: (Ord c) => [ADFA c] -> ADFA c
 unions = foldl' union empty
 
-nodeList :: ADFA c -> [(NodeId, Bool)]
+nodeList :: ADFA c -> [(Int, Bool)]
 nodeList (MkDFA nodes _) =
-  zipWith (\i n -> (NodeId i, isAccepted n)) [0..] (V.toList nodes)
+  zipWith (\i n -> (i, isAccepted n)) [0..] (V.toList nodes)
 
-edgeList :: ADFA c -> [(NodeId, c, NodeId)]
+edgeList :: ADFA c -> [(Int, c, Int)]
 edgeList (MkDFA nodes _) = V.ifoldr f [] nodes
   where
-    f i n r = [ (NodeId i, c, y) | (c,y) <- Map.toList (outEdges n) ] ++ r
+    f i n r = [ (i, c, y) | (c,NodeId y) <- Map.toList (outEdges n) ] ++ r

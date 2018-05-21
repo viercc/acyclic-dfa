@@ -44,20 +44,17 @@ shrinkADFA (MkDFA nodes root) =
     , c <- Map.keys nexts
     , let node' = Node t (Map.delete c nexts)
           nodes' = nodes V.// [(n, node')]
-    ] ++
-  [ dfa'
-    | let dfa' = topSort (MkDFA nodes root)
-    , V.length (getNodes dfa') < V.length nodes]
+    ]
 
 vecToListI :: V.Vector a -> [(Int, a)]
 vecToListI = V.ifoldr (\i a r -> (i, a) : r) []
 
-deleteNode :: (Ord c) => NodeId -> V.Vector (Node c NodeId) -> V.Vector (Node c NodeId)
+deleteNode :: (Ord c) => NodeId s -> V.Vector (Node c (NodeId s)) -> V.Vector (Node c (NodeId s))
 deleteNode n = V.map removeEdge
   where
     removeEdge (Node t e) = Node t (Map.filter (/= n) e)
 
-contractNode :: (Ord c) => NodeId -> V.Vector (Node c NodeId) -> V.Vector (Node c NodeId)
+contractNode :: (Ord c) => NodeId s -> V.Vector (Node c (NodeId s)) -> V.Vector (Node c (NodeId s))
 contractNode n nodes =
   let node = nodes V.! getNodeId n
       nextsList = Map.toList $ outEdges node

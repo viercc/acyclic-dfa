@@ -4,6 +4,8 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveTraversable     #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module Data.ADFA.Internal(
   ADFA(..),
   Node(..),
@@ -11,6 +13,7 @@ module Data.ADFA.Internal(
   empty, string, strings,
   instantiate,
   treeInstantiate,
+  toTable, fromTable,
   -- * low-level running
   accepts,
   step, steps, match,
@@ -20,8 +23,12 @@ module Data.ADFA.Internal(
   (!), (!>), renumber,
 ) where
 
+import           Data.Semigroup
+import           Data.Maybe (fromMaybe)
+import           Data.Foldable (foldl')
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set        as Set
 
 import qualified Data.Vector          as V
 import qualified Data.Vector.Growable as GV
@@ -29,10 +36,28 @@ import qualified Data.Vector.Growable as GV
 import           Data.Bifunctor
 import           Control.DeepSeq
 
+import           Data.Functor.Classes
+
 data ADFA c =
-  MkDFA { getNodes   :: !(V.Vector (Node c NodeId))
-        , rootNode   :: !NodeId }
-  deriving (Show, Eq, Ord)
+  forall s. MkDFA
+    { getNodes   :: !(V.Vector (Node c (NodeId s)))
+    , rootNode   :: !(NodeId s) }
+
+deriving instance Show c => Show (ADFA c)
+
+instance Eq c => Eq (ADFA c) where
+  MkDFA nodesA rootA == MkDFA nodesB rootB =
+    liftEq (liftEq nodeEq) nodesA nodesB &&
+    getNodeId rootA == getNodeId rootB
+    where
+      nodeEq (NodeId x) (NodeId y) = x == y
+
+instance Ord c => Ord (ADFA c) where
+  MkDFA nodesA rootA `compare` MkDFA nodesB rootB =
+    liftCompare (liftCompare nodeCompare) nodesA nodesB <>
+    getNodeId rootA `compare` getNodeId rootB
+    where
+      nodeCompare (NodeId x) (NodeId y) = compare x y
 
 instance NFData c => NFData (ADFA c) where
   rnf (MkDFA nodes _) = rnf nodes
@@ -43,13 +68,22 @@ data Node c r = Node { isAccepted :: !Bool, outEdges :: !(Map c r) }
 instance (NFData c, NFData r) => NFData (Node c r) where
   rnf (Node _ e) = rnf e
 
-newtype NodeId = NodeId { getNodeId :: Int }
+instance (Eq c) => Eq1 (Node c) where
+  liftEq eq (Node accA edgesA) (Node accB edgesB) =
+    accA == accB && liftEq eq edgesA edgesB
+
+instance (Ord c) => Ord1 (Node c) where
+  liftCompare cmp (Node accA edgesA) (Node accB edgesB) =
+    compare accA accB <> liftCompare cmp edgesA edgesB
+
+-- Node Id
+newtype NodeId s = NodeId { getNodeId :: Int }
   deriving (Eq, Ord, Enum, Num, NFData)
 
-instance Show NodeId where
+instance Show (NodeId s) where
   show (NodeId n) = show n
 
-instance Read NodeId where
+instance Read (NodeId s) where
   readsPrec p s = first NodeId <$> readsPrec p s
 
 -- | Empty ADFA which accepts no string.
@@ -57,7 +91,7 @@ empty :: ADFA c
 empty = MkDFA nodes 0
   where nodes = V.fromList [Node False Map.empty]
 
--- | Construct from string
+-- | Construct from a string.
 string :: [c] -> ADFA c
 string cs = MkDFA nodes 0
   where makeNode i c = Node False (Map.singleton c (i+1))
@@ -134,16 +168,58 @@ treeInstantiate rootKey stepKey = MkDFA nodes 0
          GV.unsafeWrite vnodes x node
          return (NodeId x)
 
+toTable :: ADFA c -> (Int, [(Int, Node c Int)])
+toTable (MkDFA nodes root) =
+  let NodeId rootI = root
+      nodeListI = map (fmap getNodeId) (V.toList nodes)
+  in (rootI, zip [0..] nodeListI)
+
+fromTable :: Ord k => k -> [(k, Node c k)] -> Maybe (ADFA c)
+fromTable root nodes =
+  if noUndefinedKeys && isAcyclic nodeGraph
+    then Just $ renumber root nodes
+    else Nothing
+  where
+    nodeMap = Map.fromList nodes
+    nodeGraph = Map.map (Map.elems . outEdges) nodeMap
+    destinations =
+      [ k | (_,Node _ edges) <- nodes,
+            (_,k) <- Map.toList edges ]
+    noUndefinedKeys = Map.member root nodeMap &&
+      all (`Map.member` nodeMap) destinations
+
+isAcyclic :: (Ord k) => Map k [k] -> Bool
+isAcyclic g = go (Map.keys g) Map.empty
+  where
+    go [] _ = True
+    go (k:rest) reach =
+      let reach' = reachability reach k
+      in case Map.lookup k reach' of
+           Nothing -> go rest reach'
+           Just rs -> Set.notMember k rs && go rest reach'
+    
+    reachability reach k
+      | Map.member k reach = reach
+      | otherwise =
+          let children = fromMaybe [] $ Map.lookup k g
+              reach' = foldl' reachability reach children
+              f accum j =
+                let descendants = fromMaybe Set.empty $ Map.lookup j reach'
+                in accum `Set.union` descendants
+              rs0 = Set.fromList children
+              rs = foldl' f rs0 children
+          in Map.insert k rs reach'
+
 -- | Is given node accepted state?
-accepts :: ADFA c -> NodeId -> Bool
+accepts :: V.Vector (Node c (NodeId s)) -> NodeId s -> Bool
 accepts dfa x = isAccepted $ dfa ! x
 
 -- | Runs an ADFA one step for given input character.
-step :: (Ord c) => ADFA c -> c -> NodeId -> Maybe NodeId
+step :: (Ord c) => V.Vector (Node c (NodeId s)) -> c -> NodeId s -> Maybe (NodeId s)
 step dfa c x = Map.lookup c $ dfa !> x
 
 -- | Runs an ADFA for given string of input alphabet.
-steps :: (Ord c) => ADFA c -> [c] -> NodeId -> Maybe NodeId
+steps :: (Ord c) => V.Vector (Node c (NodeId s)) -> [c] -> NodeId s -> Maybe (NodeId s)
 steps dfa = loop
  where
   loop []     x = Just x
@@ -151,10 +227,10 @@ steps dfa = loop
 
 -- | Decides if an ADFA accepts a string.
 match :: (Ord c) => ADFA c -> [c] -> Bool
-match dfa cs =
-  case steps dfa cs (rootNode dfa) of
+match (MkDFA nodes root) cs =
+  case steps nodes cs root of
     Nothing -> False
-    Just x  -> dfa `accepts` x
+    Just x  -> nodes `accepts` x
 
 -- * Debug
 debugPrint :: (Show c) => ADFA c -> IO ()
@@ -174,11 +250,11 @@ debugShow (MkDFA nodes root) =
 -- * Unsafe operations
 
 -- | Unsafe indexing
-(!) :: ADFA c -> NodeId -> Node c NodeId
-(!) dfa (NodeId x) = getNodes dfa V.! x
+(!) :: V.Vector (Node c (NodeId s)) -> NodeId s -> Node c (NodeId s)
+(!) nodes (NodeId x) = nodes V.! x
 
-(!>) :: ADFA c -> NodeId -> Map c NodeId
-(!>) dfa x = outEdges (dfa ! x)
+(!>) :: V.Vector (Node c (NodeId s)) -> NodeId s -> Map c (NodeId s)
+(!>) nodes x = outEdges (nodes ! x)
 
 renumber :: (Ord k) => k -> [(k, Node c k)] -> ADFA c
 renumber rootX sortedNodes = MkDFA nodes rootY

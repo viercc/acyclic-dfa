@@ -1,5 +1,5 @@
 name:                acyclic-dfa
-version:             0.1.0.0
+version:             0.1.1.0
 synopsis:            Acyclic deterministic finite automatons to recognize finite number of strings
 description:         Please see README.md
 license:             BSD3

@@ -64,6 +64,9 @@ spec = do
   specify "toSet (suffixes a) = setSuffixes (toSet a)" $
     property $ \(ADFA' dfa) -> toSet (suffixes dfa) === setSuffixes (toSet dfa)
 
+  specify "uncurry fromTable . toTable = Just" $
+    property $ \(ADFA' dfa) -> Just dfa === uncurry fromTable (toTable dfa)
+
 setAppend :: (Ord c) => Set [c] -> Set [c] -> Set [c]
 setAppend ass bss = Set.unions
   [ Set.mapMonotonic (as ++) bss

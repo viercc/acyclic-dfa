@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE ViewPatterns          #-}
 module Data.ADFA.Algorithm(
   -- * Query
   enumerate, stringCount, isEmpty, equivalent,
@@ -37,16 +38,17 @@ import           Data.ADFA.Internal
 import           Util
 
 foldNodes :: (Bool -> Map c r -> r) -> ADFA c -> r
-foldNodes f dfa = go (rootNode dfa)
+foldNodes f (MkDFA nodes root) = go root
   where
     go x =
-      let Node acceptsX edgesX = dfa ! x
+      let Node acceptsX edgesX = nodes ! x
       in f acceptsX (LMap.map go edgesX)
 
 -- | Basically same to @foldNodes@ but perform memoized recursion
 --   instead of normal recursion.
 foldNodes' :: (Bool -> Map c r -> r) -> ADFA c -> r
-foldNodes' f dfa = foldNodesTableWithKey (const f) dfa V.! getNodeId (rootNode dfa)
+foldNodes' f (MkDFA nodes root) =
+  foldNodesTableWithKey (const f) nodes V.! getNodeId root
 
 -- | Enumerates all unique strings an ADFA accepts.
 --
@@ -72,34 +74,31 @@ stringCount = foldNodes' f
 
 -- | Equivalence
 equivalent :: (Ord c) => ADFA c -> ADFA c -> Bool
-equivalent dfaA dfaB = eqv (rootNode dfaA', rootNode dfaB')
-  where
-    dfaA' = prune dfaA
-    dfaB' = prune dfaB
-
-    eqv (a,b) =
-      let Node acceptsA edgesA = dfaA' ! a
-          Node acceptsB edgesB = dfaB' ! b
-          (onlyA, both, onlyB) =
-            trisectList (Map.toAscList edgesA)
-                        (Map.toAscList edgesB)
-      in acceptsA == acceptsB &&
-         null onlyA &&
-         null onlyB &&
-         all (eqv . snd) both
+equivalent (prune -> MkDFA nodesA rootA) (prune -> MkDFA nodesB rootB) =
+  eqv (rootA, rootB)  
+  where eqv (a,b) =
+          let Node acceptsA edgesA = nodesA ! a
+              Node acceptsB edgesB = nodesB ! b
+              (onlyA, both, onlyB) =
+                trisectList (Map.toAscList edgesA)
+                            (Map.toAscList edgesB)
+          in acceptsA == acceptsB &&
+             null onlyA &&
+             null onlyB &&
+             all (eqv . snd) both
 
 -----------------------------------------------------
 
 union :: (Ord c) => ADFA c -> ADFA c -> ADFA c
-union dfaA dfaB = instantiate rootKey stepKey
+union (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
   where
-    rootKey = (Just (rootNode dfaA), Just (rootNode dfaB))
+    rootKey = (Just rootA, Just rootB)
     
     node0 = Node False Map.empty
 
     stepKey (mayA, mayB) =
-      let Node acceptsA edgesA = maybe node0 (dfaA !) mayA
-          Node acceptsB edgesB = maybe node0 (dfaB !) mayB
+      let Node acceptsA edgesA = maybe node0 (nodesA !) mayA
+          Node acceptsB edgesB = maybe node0 (nodesB !) mayB
       in Node (acceptsA || acceptsB) (merge edgesA edgesB)
     
     merge :: (Ord k) => Map k a -> Map k b -> Map k (Maybe a, Maybe b)
@@ -111,33 +110,33 @@ union dfaA dfaB = instantiate rootKey stepKey
 
 -- | Constructs an ADFA which accepts a string iff both ADFAs accept it.
 intersection :: Ord c => ADFA c -> ADFA c -> ADFA c
-intersection dfaA dfaB = instantiate rootKey stepKey
+intersection (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
   where
-    rootKey = (rootNode dfaA, rootNode dfaB)
+    rootKey = (rootA, rootB)
     stepKey (a, b) =
-      let Node acceptsA edgesA = dfaA ! a
-          Node acceptsB edgesB = dfaB ! b
+      let Node acceptsA edgesA = nodesA ! a
+          Node acceptsB edgesB = nodesB ! b
       in Node (acceptsA && acceptsB) (Map.intersectionWith (,) edgesA edgesB)
 
 difference :: (Ord c) => ADFA c -> ADFA c -> ADFA c
-difference dfaA dfaB = instantiate rootKey stepKey
+difference (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
   where
-    rootKey = (rootNode dfaA, Just (rootNode dfaB))
+    rootKey = (rootA, Just rootB)
     
     stepKey (a, Just b) =
-      let Node acceptsA edgesA = dfaA ! a
-          acceptsKey = acceptsA && not (dfaB `accepts` b)
-          edges = Map.mapWithKey (\c a' -> (a', step dfaB c b)) edgesA
+      let Node acceptsA edgesA = nodesA ! a
+          acceptsKey = acceptsA && not (nodesB `accepts` b)
+          edges = Map.mapWithKey (\c a' -> (a', step nodesB c b)) edgesA
       in Node acceptsKey edges
     stepKey (a, Nothing) =
-      let Node acceptsA edgesA = dfaA ! a
+      let Node acceptsA edgesA = nodesA ! a
           edges = Map.map (\a' -> (a', Nothing)) edgesA
       in Node acceptsA edges
 
 append :: (Ord c) => ADFA c -> ADFA c -> ADFA c
-append dfaA dfaB = instantiate rootKey stepKey
+append (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
   where
-    rootKey = (Just (rootNode dfaA), Set.empty)
+    rootKey = (Just rootA, Set.empty)
     
     node0 = Node False Map.empty
     
@@ -146,11 +145,11 @@ append dfaA dfaB = instantiate rootKey stepKey
     fromA a = (Just a, Set.empty)
     fromB b = (Nothing, Set.singleton b)
     
-    rootNodeB = dfaB ! rootNode dfaB
+    rootNodeB = nodesB ! rootB
     
     stepKey (mayA, bSet) =
-      let Node acceptsA edgesA = maybe node0 (dfaA !) mayA
-          nodeBs = (dfaB !) <$> Set.toList bSet
+      let Node acceptsA edgesA = maybe node0 (nodesA !) mayA
+          nodeBs = (nodesB !) <$> Set.toList bSet
           nodeBs' = if acceptsA then rootNodeB : nodeBs else nodeBs
           acceptsKey = any isAccepted nodeBs'
           edgesKey =
@@ -161,9 +160,9 @@ append dfaA dfaB = instantiate rootKey stepKey
 
 -- | Accept all prefixes of currently accepted strings.
 prefixes :: ADFA c -> ADFA c
-prefixes dfa@(MkDFA _ root) = MkDFA nodes' root
+prefixes (MkDFA nodes root) = MkDFA nodes' root
   where
-    nodes' = snd <$> foldNodesTableWithKey prefixes' dfa
+    nodes' = snd <$> foldNodesTableWithKey prefixes' nodes
     prefixes' x acceptsX edgesX =
       let edgesX' = fst <$> edgesX
           nonEmptyX = acceptsX || any (isAccepted . snd) edgesX
@@ -171,21 +170,21 @@ prefixes dfa@(MkDFA _ root) = MkDFA nodes' root
 
 -- | Accepts all suffixes of currently accepted strings.
 suffixes :: (Ord c) => ADFA c -> ADFA c
-suffixes dfa = instantiate rootKey stepKey
+suffixes (MkDFA nodes root) = instantiate rootKey stepKey
   where
     reachable accum [] = accum
     reachable accum (x:xs)
       | x `Set.member` accum = reachable accum xs
       | otherwise            =
           let accum' = Set.insert x accum
-              ys = Map.elems $ dfa !> x
+              ys = Map.elems $ nodes !> x
           in reachable accum' (ys ++ xs)
     
-    rootKey = reachable Set.empty [rootNode dfa]
+    rootKey = reachable Set.empty [root]
     stepKey xs = 
       let node0 = Node False Map.empty
           merge (Node acceptsKey edgesKey) x =
-            let Node acceptsX edgesX = dfa ! x
+            let Node acceptsX edgesX = nodes ! x
                 acceptsKey' = acceptsKey || acceptsX
                 edgesX' = Map.map Set.singleton edgesX
                 edgesKey' = Map.unionWith Set.union edgesKey edgesX'
@@ -208,52 +207,45 @@ topSort (MkDFA nodes root) =
 
 -- Remove empty nodes which is not accept node and only goes to other empty nodes.
 prune :: ADFA c -> ADFA c
-prune dfa = if rootIsEmpty then empty else dfa'
+prune (MkDFA nodes root) = if rootIsEmpty then empty else dfa'
   where
-    table = foldNodesTableWithKey pruneStep dfa
-    root = rootNode dfa
+    table = foldNodesTableWithKey pruneStep nodes
     rootIsEmpty = case table V.! getNodeId root of
       Nothing -> True
       Just _ -> False
     dfa' = renumber root . catMaybes $ V.toList table
     
-    pruneStep :: NodeId -> Bool -> Map c (Maybe (NodeId, Node c NodeId)) -> Maybe (NodeId, Node c NodeId)
+    pruneStep :: NodeId s -> Bool -> Map c (Maybe (NodeId s, Node c (NodeId s)))
+                          -> Maybe (NodeId s, Node c (NodeId s))
     pruneStep x acceptsX nexts =
       let edges = Map.mapMaybe (fmap fst) nexts
           isEmptyX = not acceptsX && Map.null edges
       in if isEmptyX then Nothing else Just (x, Node acceptsX edges)
 
-type ReverseIndex c = Map (Node c NodeId) NodeId
+type ReverseIndex s c = Map (Node c (NodeId s)) (NodeId s)
 
 -- | Minimizes an ADFA by removing redundant nodes.
 --   Applying @minify@ also removes unreachable nodes,
 --   so it makes 'garbageCollect' and 'prune' unnecessary.
 minify :: forall c. (Ord c) => ADFA c -> ADFA c
-minify dfa =
+minify (MkDFA nodes root) =
   postprocess $ execState (go root) (dup0, subst0)
   where
-    root :: NodeId
-    root = rootNode dfa
-    
-    subst0 :: Map NodeId (Maybe NodeId)
     subst0 = Map.empty
-    
-    dup0 :: ReverseIndex c
     dup0 = Map.empty
     
-    addNode :: NodeId -> Node c NodeId -> ReverseIndex c ->
-                (NodeId, ReverseIndex c)
+    addNode :: NodeId s -> Node c (NodeId s) -> ReverseIndex s c ->
+                (NodeId s, ReverseIndex s c)
     addNode x node dup =
       case Map.insertLookupWithKey (\_ _ x0 -> x0) node x dup of
         (Nothing, dup') -> (x, dup')
         (Just x0, dup') -> (x0, dup')
     
-    go :: NodeId -> State (ReverseIndex c, Map NodeId (Maybe NodeId)) (Maybe NodeId)
     go x = do
       (_, subst) <- get
       case Map.lookup x subst of
         Nothing -> do
-          let Node accepted neighbours = dfa ! x
+          let Node accepted neighbours = nodes ! x
           neighbours' <- traverse go neighbours
           let neighbours'' = Map.mapMaybe id neighbours'
               getRemoved = Map.null neighbours''  && not accepted
@@ -267,7 +259,6 @@ minify dfa =
               return (Just x0)
         Just r -> return r
     
-    postprocess :: (ReverseIndex c, Map NodeId (Maybe NodeId)) -> ADFA c
     postprocess (dup, subst) =
       case Map.lookup root subst of
         Just (Just root') ->
@@ -297,11 +288,12 @@ fromSet = fromAscList . Set.toAscList
 
 -- Utilities
 
-foldNodesTableWithKey :: (NodeId -> Bool -> Map c r -> r) -> ADFA c -> V.Vector r
-foldNodesTableWithKey f dfa = table
+foldNodesTableWithKey ::
+  (NodeId s -> Bool -> Map c r -> r) -> V.Vector (Node c (NodeId s)) -> V.Vector r
+foldNodesTableWithKey f nodes = table
   where
     g x (Node t e) = f (NodeId x) t (LMap.map ((table V.!) . getNodeId) e)
-    table = V.imap g (getNodes dfa)
+    table = V.imap g nodes
 
 modifySnd :: (MonadState (a,b) m) => (b -> b) -> m ()
 modifySnd f = get >>= \(a, b) -> let !b' = f b in put (a, b')
