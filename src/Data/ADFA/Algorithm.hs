@@ -22,8 +22,6 @@ module Data.ADFA.Algorithm(
 ) where
 
 import           Data.Tuple          (swap)
-import           Data.Maybe          (catMaybes)
-import           Data.Bifunctor
 import qualified Data.Map.Lazy       as LMap
 import           Data.Map.Strict     (Map)
 import qualified Data.Map.Strict     as Map
@@ -36,19 +34,6 @@ import           Control.Monad.State
 
 import           Data.ADFA.Internal
 import           Util
-
-foldNodes :: (Bool -> Map c r -> r) -> ADFA c -> r
-foldNodes f (MkDFA nodes root) = go root
-  where
-    go x =
-      let Node acceptsX edgesX = nodes ! x
-      in f acceptsX (LMap.map go edgesX)
-
--- | Basically same to @foldNodes@ but perform memoized recursion
---   instead of normal recursion.
-foldNodes' :: (Bool -> Map c r -> r) -> ADFA c -> r
-foldNodes' f (MkDFA nodes root) =
-  foldNodesTableWithKey (const f) nodes V.! getNodeId root
 
 -- | Enumerates all unique strings an ADFA accepts.
 --
@@ -162,11 +147,11 @@ append (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
 prefixes :: ADFA c -> ADFA c
 prefixes (MkDFA nodes root) = MkDFA nodes' root
   where
-    nodes' = snd <$> foldNodesTableWithKey prefixes' nodes
-    prefixes' x acceptsX edgesX =
-      let edgesX' = fst <$> edgesX
-          nonEmptyX = acceptsX || any (isAccepted . snd) edgesX
-      in (x, Node nonEmptyX edgesX')
+    nodes' = snd <$> traversalTable prefixes' nodes
+    prefixes' (Node acceptsX edgesX) =
+      let edgesX' = snd <$> edgesX
+          nonEmptyX = acceptsX || any fst edgesX
+      in (nonEmptyX, Node nonEmptyX edgesX')
 
 -- | Accepts all suffixes of currently accepted strings.
 suffixes :: (Ord c) => ADFA c -> ADFA c
@@ -196,37 +181,35 @@ infixes :: (Ord c) => ADFA c -> ADFA c
 infixes = suffixes . prefixes
 
 -- | Relabel nodes to make all paths have increasing order.
---   Applying @topSort@ also eliminates unreachable nodes,
---   so it makes 'garbageCollect' unnecessary.
+--   Applying @topSort@ also eliminates unreachable nodes.
 topSort :: ADFA c -> ADFA c
 topSort (MkDFA nodes root) =
-  renumber root . map (second tupleToNode) $ topologicalSort root idx (Map.elems . snd)
-  where
-    idx (NodeId x) = case nodes V.! x of
-      Node accX edgesX -> (accX, edgesX)
+  renumber root $ topologicalSort root (nodes !) (Map.elems . outEdges)
 
--- Remove empty nodes which is not accept node and only goes to other empty nodes.
+-- | Remove empty nodes which is not accept node and only goes to
+--   other empty nodes.
 prune :: ADFA c -> ADFA c
 prune (MkDFA nodes root) = if rootIsEmpty then empty else dfa'
   where
-    table = foldNodesTableWithKey pruneStep nodes
+    table = traversalTable pruneStep nodes
+
+    pruneStep (Node acceptsX edgesX) =
+      let edgesX' = Map.mapMaybe id edgesX
+          isEmptyX = not acceptsX && Map.null edgesX'
+      in if isEmptyX then Nothing else Just (Node acceptsX edgesX')
+    
     rootIsEmpty = case table V.! getNodeId root of
       Nothing -> True
       Just _ -> False
-    dfa' = renumber root . catMaybes $ V.toList table
-    
-    pruneStep :: NodeId s -> Bool -> Map c (Maybe (NodeId s, Node c (NodeId s)))
-                          -> Maybe (NodeId s, Node c (NodeId s))
-    pruneStep x acceptsX nexts =
-      let edges = Map.mapMaybe (fmap fst) nexts
-          isEmptyX = not acceptsX && Map.null edges
-      in if isEmptyX then Nothing else Just (x, Node acceptsX edges)
+
+    dfa' = renumber root
+      [ (x,node) | (x, Just node) <- zip [0..] (V.toList table) ]
 
 type ReverseIndex s c = Map (Node c (NodeId s)) (NodeId s)
 
 -- | Minimizes an ADFA by removing redundant nodes.
 --   Applying @minify@ also removes unreachable nodes,
---   so it makes 'garbageCollect' and 'prune' unnecessary.
+--   so there is no need to 'prune' right before or after 'minify'.
 minify :: forall c. (Ord c) => ADFA c -> ADFA c
 minify (MkDFA nodes root) =
   postprocess $ execState (go root) (dup0, subst0)
@@ -288,18 +271,34 @@ fromSet = fromAscList . Set.toAscList
 
 -- Utilities
 
-foldNodesTableWithKey ::
-  (NodeId s -> Bool -> Map c r -> r) -> V.Vector (Node c (NodeId s)) -> V.Vector r
-foldNodesTableWithKey f nodes = table
+-- | Fold Acyclic DFA structure.
+foldNodes :: (Bool -> Map c r -> r) -> ADFA c -> r
+foldNodes f (MkDFA nodes root) = go root
   where
-    g x (Node t e) = f (NodeId x) t (LMap.map ((table V.!) . getNodeId) e)
-    table = V.imap g nodes
+    go x =
+      let Node acceptsX edgesX = nodes ! x
+      in f acceptsX (LMap.map go edgesX)
+
+-- | Basically same to @foldNodes@ but perform memoized recursion
+--   instead of normal recursion.
+foldNodes' :: (Bool -> Map c r -> r) -> ADFA c -> r
+foldNodes' f (MkDFA nodes root) = table V.! getNodeId root
+  where table = V.map g nodes
+        g (Node t e) = f t (LMap.map (\(NodeId i) -> table V.! i) e)
+
+traversalTable ::
+  (Functor f) =>
+  (Node c (f (NodeId s)) -> f (Node c (NodeId s))) ->
+  V.Vector (Node c (NodeId s)) ->
+  V.Vector (f (Node c (NodeId s)))
+traversalTable f nodes = table
+  where
+    g (Node t e) = f (Node t (LMap.map queryContext e))
+    queryContext x@(NodeId i) = x <$ (table V.! i)
+    table = V.map g nodes
 
 modifySnd :: (MonadState (a,b) m) => (b -> b) -> m ()
 modifySnd f = get >>= \(a, b) -> let !b' = f b in put (a, b')
 
 stateFst :: (MonadState (a,b) m) => (a -> (x,a)) -> m x
 stateFst f = get >>= \(a, b) -> let (x, !a') = f a in put (a', b) >> return x
-
-tupleToNode :: (Bool, Map c k) -> Node c k
-tupleToNode (t, e) = Node t e

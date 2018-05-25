@@ -1,10 +1,6 @@
 module Util where
 
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import qualified Data.Set        as Set
-
-import qualified Queue           as Q
 
 -- | Two inputs must be sorted in ascending order.
 trisectList :: (Ord k) =>
@@ -21,45 +17,17 @@ trisectList as@((ka, a):as') bs@((kb,b):bs') =
       (onlyA, both, onlyB) -> (onlyA, both, (kb,b) : onlyB)
 
 topologicalSort :: (Ord k) => k -> (k -> v) -> (v -> [k]) -> [(k,v)]
-topologicalSort root nodeOf childrenOf =
-  snd . Q.traceQueue $
-    do Q.offer [(root, nodeOf root)]
-       loop (Set.singleton root)
+topologicalSort root nodeOf childrenOf = snd $ visit Set.empty [] [root]
   where
-    loop subst = Q.poll 1 >>= \q ->
-      case q of
-        []        -> return ()
-        ((_,v):_) -> expand v subst >>= loop
-    
-    expand v subst =
-      do Q.offer ys
-         return subst'
-      where
-        js = (`Set.difference` subst) . Set.fromList $ childrenOf v
-        subst' = Set.union subst js
-        ys = map (\j -> (j, nodeOf j)) $ Set.toList js
-
-topologicalSort' :: (Ord k) => k -> (k -> v) -> (v -> [k]) -> (Map k Int, [(k,v)])
-topologicalSort' root nodeOf childrenOf =
-  Q.traceQueue $
-    do Q.offer [(root, nodeOf root)]
-       loop (Map.singleton root 0)
-  where
-    loop subst = Q.poll 1 >>= \q ->
-      case q of
-        []        -> return subst
-        ((_,v):_) -> expand v subst >>= loop
-    
-    expand v subst =
-      do Q.offer ys
-         return subst'
-      where
-        n = Map.size subst
-        js = Set.fromList . filter (`Map.notMember` subst) $ childrenOf v
-        substJ = snd . Map.mapAccum s n $ Map.fromSet (const ()) js
-        s x () = x `seq` (x+1, x)
-        subst' = Map.union subst substJ
-        ys = map (\j -> (j, nodeOf j)) $ Set.toList js
+    visit visited acc [] = (visited, acc)
+    visit visited acc (x : rest)
+      | x `Set.member` visited = visit visited acc rest
+      | otherwise =
+           let node = nodeOf x
+               visited' = Set.insert x visited
+               (visited'', acc') = visit visited' acc (childrenOf node)
+               acc'' = (x,node) : acc'
+           in visit visited'' acc'' rest
 
 groupStrs :: (Eq c) => [[c]] -> (Bool, [(c,[[c]])])
 groupStrs = foldr step (False, [])

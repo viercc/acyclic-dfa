@@ -1,3 +1,4 @@
+{-# LANGUAGE ViewPatterns #-}
 module Data.ADFA.Gen(
   C(..),
   ADFA'(..),
@@ -8,10 +9,9 @@ module Data.ADFA.Gen(
 import           Test.QuickCheck
 
 import           Data.List          (foldl')
+import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set        as Set
-
-import qualified Data.Vector     as V
 
 import           Common
 import           Data.ADFA.Internal
@@ -33,37 +33,37 @@ genADFA = frequency
   ]
 
 shrinkADFA :: (Ord c, Arbitrary c) => ADFA c -> [ADFA c]
-shrinkADFA (MkDFA nodes root) =
-  [ MkDFA nodes' root
-    | n <- NodeId <$> [0 .. V.length nodes - 1]
+shrinkADFA (toTable -> (root, table)) =
+  [ dfa'
+    | n <- Map.keys nodes
     , n /= root
     , nodes' <- [deleteNode n nodes, contractNode n nodes]
+    , Just dfa' <- [fromTable root (Map.toList nodes')]
     ] ++
-  [ MkDFA nodes' root
-    | (n, Node t nexts) <- vecToListI nodes
+  [ dfa'
+    | (n, Node t nexts) <- table
     , c <- Map.keys nexts
     , let node' = Node t (Map.delete c nexts)
-          nodes' = nodes V.// [(n, node')]
+          nodes' = Map.insert n node' nodes
+    , Just dfa' <- [fromTable root (Map.toList nodes')]
     ]
+  where nodes = Map.fromList table
 
-vecToListI :: V.Vector a -> [(Int, a)]
-vecToListI = V.ifoldr (\i a r -> (i, a) : r) []
-
-deleteNode :: (Ord c) => NodeId s -> V.Vector (Node c (NodeId s)) -> V.Vector (Node c (NodeId s))
-deleteNode n = V.map removeEdge
+deleteNode :: (Ord k, Ord c) => k -> Map k (Node c k) -> Map k (Node c k)
+deleteNode x = Map.map removeEdge . Map.delete x
   where
-    removeEdge (Node t e) = Node t (Map.filter (/= n) e)
+    removeEdge (Node t e) = Node t (Map.filter (/= x) e)
 
-contractNode :: (Ord c) => NodeId s -> V.Vector (Node c (NodeId s)) -> V.Vector (Node c (NodeId s))
-contractNode n nodes =
-  let node = nodes V.! getNodeId n
+contractNode :: (Ord k, Ord c) => k -> Map k (Node c k) -> Map k (Node c k)
+contractNode x nodes =
+  let node = nodes Map.! x
       nextsList = Map.toList $ outEdges node
       replaceEdges (Node t nexts) =
         let nexts' = Map.fromList $
-              do (c, x) <- Map.toList nexts
-                 if x == n then nextsList else [(c,x)]
+              do (c, y) <- Map.toList nexts
+                 if y == x then nextsList else [(c,y)]
         in Node t nexts'
-  in V.map replaceEdges nodes
+  in Map.map replaceEdges . Map.delete x $ nodes
 
 handgenADFA :: (Ord c, Arbitrary c) => Gen (ADFA c)
 handgenADFA =

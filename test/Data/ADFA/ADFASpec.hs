@@ -5,7 +5,7 @@ module Data.ADFA.ADFASpec(
 import           Test.Hspec
 import           Test.QuickCheck
 
-import           Data.List (inits, tails)
+import           Data.List (sort, inits, tails)
 import           Data.Set            (Set)
 import qualified Data.Set            as Set
 
@@ -38,13 +38,13 @@ spec = do
     property $ \(ADFA' dfaA) (ADFA' dfaB) ->
       equivalent dfaA dfaB === (enumerate dfaA == enumerate dfaB)
   
-  specify "minify a `equivalent` a" $
-    property $ \(ADFA' dfa) -> minify dfa `equivalent` dfa
   specify "topSort a `equivalent` a" $
     property $ \(ADFA' dfa) -> topSort dfa `equivalent` dfa
   specify "prune a `equivalent` a" $
     property $ \(ADFA' dfa) -> prune dfa `equivalent` dfa
-    
+  specify "minify a `equivalent` a" $
+    property $ \(ADFA' dfa) -> minify dfa `equivalent` dfa
+  
   specify "toSet (union a b) = Set.union (toSet a) (toSet b)" $
     property $ \(ADFA' dfaA) (ADFA' dfaB) ->
       toSet (union dfaA dfaB) == Set.union (toSet dfaA) (toSet dfaB)
@@ -58,7 +58,6 @@ spec = do
     property $ \(ADFA' dfaA) (ADFA' dfaB) ->
       toSet (append dfaA dfaB) == setAppend (toSet dfaA) (toSet dfaB)
   
-  
   specify "toSet (prefixes a) = setPrefixes (toSet a)" $
     property $ \(ADFA' dfa) -> toSet (prefixes dfa) === setPrefixes (toSet dfa)
   specify "toSet (suffixes a) = setSuffixes (toSet a)" $
@@ -66,6 +65,11 @@ spec = do
 
   specify "uncurry fromTable . toTable = Just" $
     property $ \(ADFA' dfa) -> Just dfa === uncurry fromTable (toTable dfa)
+
+  specify "fromAscList (sort a) `equivalent` fromList" $
+    property $ \strs -> fromAscList (sort strs) `equivalent` fromList (strs :: [[C]])
+  specify "fromSet (Set.fromList a) `equivalent` fromList" $
+    property $ \strs -> fromSet (Set.fromList strs) `equivalent` fromList (strs :: [[C]])
 
 setAppend :: (Ord c) => Set [c] -> Set [c] -> Set [c]
 setAppend ass bss = Set.unions
