@@ -1,5 +1,5 @@
 name:                acyclic-dfa
-version:             0.1.1.0
+version:             0.2.0.0
 synopsis:            Acyclic deterministic finite automatons to recognize finite number of strings
 description:         Please see README.md
 license:             BSD3
@@ -15,10 +15,14 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Data.ADFA,
-                       Data.ADFA.Algorithm,
-                       Data.ADFA.Internal
-  other-modules:       Queue,
-                       Util,
+                       Data.ADFA.Internal,
+                       Data.ADFA.IdVector
+  other-modules:       Data.These,
+                       Data.ADFA.Util,
+                       Data.ADFA.NodeId,
+                       Data.ADFA.IdMap,
+                       Data.ADFA.IdSet,
+                       Data.ADFA.IdVector.Unsafe,
                        Data.Vector.Growable
   build-depends:       base >= 4.8 && < 5,
                        deepseq,

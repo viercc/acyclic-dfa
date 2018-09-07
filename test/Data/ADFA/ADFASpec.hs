@@ -9,8 +9,7 @@ import           Data.List (sort, inits, tails)
 import           Data.Set            (Set)
 import qualified Data.Set            as Set
 
-import           Data.ADFA.Internal  as ADFA
-import           Data.ADFA.Algorithm as ADFA
+import           Data.ADFA           as ADFA
 
 import           Data.ADFA.Gen
 
@@ -27,12 +26,12 @@ spec = do
   specify "length . enumerate = stringCount" $
     property $ \(ADFA' dfa) -> length (enumerate dfa) === stringCount dfa
   
-  specify "match dfa = (`Set.member` toSet dfa)" $
+  specify "member x dfa = Set.member x (toSet dfa)" $
     property $ \(ADFA' dfa) ->
       let strSet = toSet dfa
-      in property $ \str -> match dfa str == Set.member str strSet
-  specify "forAll (str `in` enumerate dfa). match dfa str" $
-    property $ \(ADFA' dfa) -> all (match dfa) <$> acceptStrs dfa
+      in property $ \str -> member str dfa == Set.member str strSet
+  specify "forAll (str `in` enumerate dfa). member str dfa" $
+    property $ \(ADFA' dfa) -> all (`member` dfa) <$> acceptStrs dfa
   
   specify "equivalent a b == (enumerate a == enumerate b)" $
     property $ \(ADFA' dfaA) (ADFA' dfaB) ->
@@ -62,10 +61,7 @@ spec = do
     property $ \(ADFA' dfa) -> toSet (prefixes dfa) === setPrefixes (toSet dfa)
   specify "toSet (suffixes a) = setSuffixes (toSet a)" $
     property $ \(ADFA' dfa) -> toSet (suffixes dfa) === setSuffixes (toSet dfa)
-
-  specify "uncurry fromTable . toTable = Just" $
-    property $ \(ADFA' dfa) -> Just dfa === uncurry fromTable (toTable dfa)
-
+  
   specify "fromAscList (sort a) `equivalent` fromList" $
     property $ \strs -> fromAscList (sort strs) `equivalent` fromList (strs :: [[C]])
   specify "fromSet (Set.fromList a) `equivalent` fromList" $

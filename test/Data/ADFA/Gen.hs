@@ -14,8 +14,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set        as Set
 
 import           Common
+import           Data.ADFA
 import           Data.ADFA.Internal
-import           Data.ADFA.Algorithm
+import qualified Data.ADFA.IdVector as IV
 
 newtype ADFA' = ADFA' (ADFA C)
 
@@ -32,8 +33,18 @@ genADFA = frequency
   , (2, strings <$> arbitrary)
   ]
 
+toTable :: ADFA c -> (Int, Map Int (Node c Int))
+toTable dfa = withInternals dfa idToInt
+  where
+    idToInt root table =
+      let subst = Map.fromList $ zip (IV.indices table) [0..]
+          f = (subst Map.!)
+          table' = Map.fromList $ zip [0..] (IV.toList table)
+          table'' = Map.map (fmap f) table'
+      in (f root, table'')
+
 shrinkADFA :: (Ord c, Arbitrary c) => ADFA c -> [ADFA c]
-shrinkADFA (toTable -> (root, table)) =
+shrinkADFA (toTable -> (root, nodes)) =
   [ dfa'
     | n <- Map.keys nodes
     , n /= root
@@ -41,13 +52,12 @@ shrinkADFA (toTable -> (root, table)) =
     , Just dfa' <- [fromTable root (Map.toList nodes')]
     ] ++
   [ dfa'
-    | (n, Node t nexts) <- table
+    | (n, Node t nexts) <- Map.toList nodes
     , c <- Map.keys nexts
     , let node' = Node t (Map.delete c nexts)
           nodes' = Map.insert n node' nodes
     , Just dfa' <- [fromTable root (Map.toList nodes')]
     ]
-  where nodes = Map.fromList table
 
 deleteNode :: (Ord k, Ord c) => k -> Map k (Node c k) -> Map k (Node c k)
 deleteNode x = Map.map removeEdge . Map.delete x
@@ -80,7 +90,7 @@ handgenADFA =
            return (x, c, x')
       let nodeData0 = Map.fromList [ (x, Node (Set.member x goals) Map.empty) | x <- ns ]
           nodeData = foldl' addEdge nodeData0 edges
-      return $ renumber 0 (Map.toList nodeData)
+      return $ renumberOrd 0 (Map.toList nodeData)
     
     addEdge nodes (x, c, x') =
       let f (Node t e) = Node t (Map.insert c x' e)

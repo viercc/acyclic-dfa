@@ -2,8 +2,7 @@ module Main(main) where
 
 import Criterion.Main
 
-import qualified Data.ADFA.Internal  as ADFA
-import qualified Data.ADFA.Algorithm as ADFA
+import qualified Data.ADFA           as ADFA
 
 import qualified Data.Trie.Set as T
 
@@ -56,7 +55,7 @@ benchADFA = bgroup "ADFA"
         , bench "stringCount" (nf ADFA.stringCount dfa)
         , bench "enumerate10" (nf (take 10 . ADFA.enumerate) dfa)
         , env randomStrs $ \qs ->
-            bench "match" (nf (\dfa' -> map (ADFA.match dfa') qs) dfa)
+            bench "member" (nf (\dfa' -> map (`ADFA.member` dfa') qs) dfa)
         , bench "eqv1" (nf (ADFA.equivalent dfa) dfa)
         , env (ADFA.minify . ADFA.fromList <$> dictBrEn) $ \dfa' ->
             bench "eqv2" (nf (ADFA.equivalent dfa) dfa') ]
