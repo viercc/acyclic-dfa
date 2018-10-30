@@ -90,7 +90,8 @@ handgenADFA =
            return (x, c, x')
       let nodeData0 = Map.fromList [ (x, Node (Set.member x goals) Map.empty) | x <- ns ]
           nodeData = foldl' addEdge nodeData0 edges
-      return $ renumberOrd 0 (Map.toList nodeData)
+      Just result <- return $ fromTable 0 (Map.toList nodeData)
+      return result
     
     addEdge nodes (x, c, x') =
       let f (Node t e) = Node t (Map.insert c x' e)

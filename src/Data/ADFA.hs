@@ -265,7 +265,7 @@ reverse (MkDFA nodes root) = instantiate rootKey stepKey
 --   Applying @topSort@ also eliminates unreachable nodes.
 topSort :: ADFA c -> ADFA c
 topSort (MkDFA nodes root) =
-  renumber root $ topologicalSort root (nodes !) (Map.elems . outEdges)
+  unsafeRenumber root $ topologicalSort root (nodes !) (Map.elems . outEdges)
 
 -- | Remove empty nodes which is not accept node and only goes to
 --   other empty nodes.
@@ -283,7 +283,7 @@ prune (MkDFA nodes root) = if rootIsEmpty then empty else dfa'
       Nothing -> True
       Just _  -> False
 
-    dfa' = renumber root
+    dfa' = unsafeRenumber root
       [ (x,node) | (x, Just node) <- IV.toAssoc table ]
 
 type ReverseIndex s c = Map (Node c (NodeId s)) (NodeId s)
@@ -327,7 +327,7 @@ minify (MkDFA nodes root) =
       case IdMap.lookup root subst of
         Just (Just root') ->
           let table = map swap $ Map.toList dup
-          in  renumber root' table
+          in  unsafeRenumber root' table
         _ -> empty
 
 -- * Conversion

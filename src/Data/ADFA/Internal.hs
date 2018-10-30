@@ -28,7 +28,7 @@ module Data.ADFA.Internal(
   foldNodes',
   
   -- * Unsafe construction
-  renumber, renumberOrd,
+  unsafeRenumber, unsafeRenumberOrd,
 ) where
 
 import           Data.Foldable             (foldl')
@@ -181,7 +181,7 @@ treeInstantiate rootKey stepKey = MkDFA nodes (NodeId 0)
 fromTable :: Ord k => k -> [(k, Node c k)] -> Maybe (ADFA c)
 fromTable root nodes =
   if noUndefinedKeys && isAcyclic nodeGraph
-    then Just $ renumberOrd root nodes
+    then Just $ unsafeRenumberOrd root nodes
     else Nothing
   where
     nodeMap = Map.fromList nodes
@@ -260,8 +260,8 @@ foldNodes' f (MkDFA nodes root) = table ! root
         g (Node t e) = f t (LMap.map (table !) e)
 
 -- * Unsafe operations
-renumber :: NodeId s -> [(NodeId s, Node c (NodeId s))] -> ADFA c
-renumber rootX sortedNodes = MkDFA nodes rootY
+unsafeRenumber :: NodeId s -> [(NodeId s, Node c (NodeId s))] -> ADFA c
+unsafeRenumber rootX sortedNodes = MkDFA nodes rootY
   where
     xs = map fst sortedNodes
     subst = IdMap.fromList $ zip xs (NodeId <$> [0..])
@@ -274,8 +274,8 @@ renumber rootX sortedNodes = MkDFA nodes rootY
     nodesY = map (fmap applySubst . snd) sortedNodes
     nodes = IV $ V.fromListN n nodesY
 
-renumberOrd :: (Ord k) => k -> [(k, Node c k)] -> ADFA c
-renumberOrd rootX sortedNodes = MkDFA nodes rootY
+unsafeRenumberOrd :: (Ord k) => k -> [(k, Node c k)] -> ADFA c
+unsafeRenumberOrd rootX sortedNodes = MkDFA nodes rootY
   where
     xs = map fst sortedNodes
     subst = Map.fromList $ zip xs (NodeId <$> [0..])
