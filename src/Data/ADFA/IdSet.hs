@@ -7,7 +7,8 @@ module Data.ADFA.IdSet(
   member, notMember,
   insert, delete,
   union, difference, intersection,
-  foldl'
+  foldl',
+  toList
 ) where
 
 import Data.ADFA.NodeId(NodeId(..))
@@ -51,3 +52,6 @@ intersection = coerce IntSet.intersection
 
 foldl' :: forall a s. (a -> NodeId s -> a) -> a -> IdSet s -> a
 foldl' = coerce (IntSet.foldl' @a)
+
+toList :: IdSet s -> [NodeId s]
+toList = coerce IntSet.toList

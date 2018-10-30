@@ -51,31 +51,36 @@ benchADFA = bgroup "ADFA"
         bench "fromAscList" $ nf ADFA.fromAscList sortedDict ]
   , env (ADFA.minify . ADFA.fromList <$> dictAmEn) $ \dfa ->
       bgroup "query"
-        [ bench "isEmpty" (nf ADFA.isEmpty dfa)
-        , bench "stringCount" (nf ADFA.stringCount dfa)
-        , bench "enumerate10" (nf (take 10 . ADFA.enumerate) dfa)
+        [ bench "isEmpty" (whnf ADFA.isEmpty dfa)
+        , bench "stringCount" (whnf ADFA.stringCount dfa)
+        , bench "enumerate10" (whnf (take 10 . ADFA.enumerate) dfa)
         , env randomStrs $ \qs ->
-            bench "member" (nf (\dfa' -> map (`ADFA.member` dfa') qs) dfa)
-        , bench "eqv1" (nf (ADFA.equivalent dfa) dfa)
+            bench "member" (whnf (\dfa' -> map (`ADFA.member` dfa') qs) dfa)
+        , bench "eqv1" (whnf (ADFA.equivalent dfa) dfa)
         , env (ADFA.minify . ADFA.fromList <$> dictBrEn) $ \dfa' ->
-            bench "eqv2" (nf (ADFA.equivalent dfa) dfa') ]
+            bench "eqv2" (whnf (ADFA.equivalent dfa) dfa') ]
   , env (ADFA.fromList <$> dictAmEn) $ \dfa ->
     env (return $ ADFA.minify dfa) $ \dfa' ->
       bgroup "optimize"
-        [ bench "minify" (nf ADFA.minify dfa)
-        , bench "topSort" (nf ADFA.topSort dfa')
-        , bench "prune" (nf ADFA.prune dfa') ]
+        [ bench "minify" (whnf ADFA.minify dfa)
+        , bench "topSort" (whnf ADFA.topSort dfa')
+        , bench "prune" (whnf ADFA.prune dfa') ]
   , env (ADFA.minify . ADFA.fromList <$> dictAmEn) $ \dfaA ->
     env (ADFA.minify . ADFA.fromList <$> dictBrEn) $ \dfaB ->
     env (ADFA.minify . ADFA.fromList <$> randomStrs) $ \dfaSmall ->
       bgroup "combine"
-        [ bench "union" (nf (uncurry ADFA.union) (dfaA, dfaB))
-        , bench "intersection" (nf (uncurry ADFA.intersection) (dfaA, dfaB))
-        , bench "difference" (nf (uncurry ADFA.difference) (dfaA, dfaB))
-        , bench "append" (nf (uncurry ADFA.append) (dfaSmall, dfaSmall))
-        , bench "prefixes" (nf ADFA.prefixes dfaA)
-        , bench "suffixes" (nf ADFA.suffixes dfaB) ]
+        [ bench "union" (whnf (uncurry ADFA.union) (dfaA, dfaB))
+        , bench "intersection" (whnf (uncurry ADFA.intersection) (dfaA, dfaB))
+        , bench "difference" (whnf (uncurry ADFA.difference) (dfaA, dfaB))
+        , bench "append" (whnf (uncurry ADFA.append) (dfaSmall, dfaSmall))
+        , bench "prefixes" (whnf ADFA.prefixes dfaA)
+        , bench "suffixes" (whnf ADFA.suffixes dfaB)
+        , bench "reverse" (whnf ADFA.reverse dfaA)
+        , bench "reverse_manual" (whnf manualReverse dfaA)]
   ]
+
+manualReverse :: (Ord c) => ADFA.ADFA c -> ADFA.ADFA c
+manualReverse = ADFA.fromList . map reverse . ADFA.toList
 
 benchTrie :: Benchmark
 benchTrie = bgroup "Trie" 
@@ -85,26 +90,30 @@ benchTrie = bgroup "Trie"
           bench "fromAscList" $ nf T.fromAscList sortedDict ]
   , env (T.fromList <$> dictAmEn) $ \dict ->
       bgroup "query"
-        [ bench "isEmpty" (nf T.null dict)
-        , bench "stringCount" (nf T.count dict)
-        , bench "enumerate10" (nf (take 10 . T.enumerate) dict)
+        [ bench "isEmpty" (whnf T.null dict)
+        , bench "stringCount" (whnf T.count dict)
+        , bench "enumerate10" (whnf (take 10 . T.enumerate) dict)
         , env randomStrs $ \qs ->
-            bench "match" (nf (\dict' -> map (`T.member` dict') qs) dict)
-        , bench "eqv1" (nf (dict ==) dict)
+            bench "match" (whnf (\dict' -> map (`T.member` dict') qs) dict)
+        , bench "eqv1" (whnf (dict ==) dict)
         , env (T.fromList <$> dictBrEn) $ \dict' ->
-            bench "eqv2" (nf (dict ==) dict')]
+            bench "eqv2" (whnf (dict ==) dict')]
   , env (T.fromList <$> dictAmEn) $ \dictA ->
     env (T.fromList <$> dictBrEn) $ \dictB ->
     env (T.fromList <$> randomStrs) $ \dictSmall ->
       bgroup "combine"
-        [ bench "union" (nf (uncurry T.union) (dictA, dictB))
-        , bench "intersection" (nf (uncurry T.intersection) (dictA, dictB))
-        , bench "difference" (nf (uncurry T.difference) (dictA, dictB))
-        , bench "append" (nf (uncurry T.append) (dictSmall, dictSmall))
-        , bench "prefixes" (nf T.prefixes dictA)
-        , bench "suffixes" (nf T.suffixes dictB) ]
+        [ bench "union" (whnf (uncurry T.union) (dictA, dictB))
+        , bench "intersection" (whnf (uncurry T.intersection) (dictA, dictB))
+        , bench "difference" (whnf (uncurry T.difference) (dictA, dictB))
+        , bench "append" (whnf (uncurry T.append) (dictSmall, dictSmall))
+        , bench "prefixes" (whnf T.prefixes dictA)
+        , bench "suffixes" (whnf T.suffixes dictB)
+        , bench "reverse" (whnf trieReverse dictA)]
   ]
-    
+
+trieReverse :: (Ord c) => T.TSet c -> T.TSet c
+trieReverse = T.fromList . map reverse . T.toList
+
 benchSet :: Benchmark
 benchSet = bgroup "Set" 
   [ bgroup "construction"
@@ -117,24 +126,25 @@ benchSet = bgroup "Set"
           bench "fromAscList" $ nf Set.fromAscList sortedDict ]
   , env (Set.fromList <$> dictAmEn) $ \dictSet ->
       bgroup "query"
-        [ bench "isEmpty" (nf Set.null dictSet)
-        , bench "stringCount" (nf Set.size dictSet)
-        , bench "enumerate10" (nf (take 10 . Set.toList) dictSet)
+        [ bench "isEmpty" (whnf Set.null dictSet)
+        , bench "stringCount" (whnf Set.size dictSet)
+        , bench "enumerate10" (whnf (take 10 . Set.toList) dictSet)
         , env randomStrs $ \qs ->
-            bench "match" (nf (\dictSet' -> map (`Set.member` dictSet') qs) dictSet)
-        , bench "eqv1" (nf (dictSet ==) dictSet)
+            bench "match" (whnf (\dictSet' -> map (`Set.member` dictSet') qs) dictSet)
+        , bench "eqv1" (whnf (dictSet ==) dictSet)
         , env (Set.fromList <$> dictBrEn) $ \dictSet' ->
-            bench "eqv2" (nf (dictSet ==) dictSet')]
+            bench "eqv2" (whnf (dictSet ==) dictSet')]
   , env (Set.fromList <$> dictAmEn) $ \dictA ->
     env (Set.fromList <$> dictBrEn) $ \dictB ->
     env (Set.fromList <$> randomStrs) $ \dictSmall ->
       bgroup "combine"
-        [ bench "union" (nf (uncurry Set.union) (dictA, dictB))
-        , bench "intersection" (nf (uncurry Set.intersection) (dictA, dictB))
-        , bench "difference" (nf (uncurry Set.difference) (dictA, dictB))
-        , bench "append" (nf (uncurry setAppend) (dictSmall, dictSmall))
-        , bench "prefixes" (nf setPrefixes dictA)
-        , bench "suffixes" (nf setSuffixes dictB) ]
+        [ bench "union" (whnf (uncurry Set.union) (dictA, dictB))
+        , bench "intersection" (whnf (uncurry Set.intersection) (dictA, dictB))
+        , bench "difference" (whnf (uncurry Set.difference) (dictA, dictB))
+        , bench "append" (whnf (uncurry setAppend) (dictSmall, dictSmall))
+        , bench "prefixes" (whnf setPrefixes dictA)
+        , bench "suffixes" (whnf setSuffixes dictB)
+        , bench "reverse" (whnf setReverse dictA) ]
   ]
 
 setAppend :: (Ord c) => Set [c] -> Set [c] -> Set [c]
@@ -149,6 +159,9 @@ setPrefixes ass = Set.unions
 setSuffixes :: (Ord c) => Set [c] -> Set [c]
 setSuffixes ass = Set.fromList
   [ bs | as <- Set.toAscList ass, bs <- tails as ]
+
+setReverse :: (Ord c) => Set [c] -> Set [c]
+setReverse = Set.map reverse
 
 -------------------------------------------------------------------
 -- Utility

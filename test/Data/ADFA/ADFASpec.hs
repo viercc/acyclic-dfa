@@ -61,6 +61,9 @@ spec = do
     property $ \(ADFA' dfa) -> toSet (prefixes dfa) === setPrefixes (toSet dfa)
   specify "toSet (suffixes a) = setSuffixes (toSet a)" $
     property $ \(ADFA' dfa) -> toSet (suffixes dfa) === setSuffixes (toSet dfa)
+
+  specify "toSet (reverse a) = Set.map reverse (toSet a)" $
+    property $ \(ADFA' dfa) -> toSet (ADFA.reverse dfa) === Set.map Prelude.reverse (toSet dfa)
   
   specify "fromAscList (sort a) `equivalent` fromList" $
     property $ \strs -> fromAscList (sort strs) `equivalent` fromList (strs :: [[C]])

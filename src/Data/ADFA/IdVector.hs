@@ -5,6 +5,7 @@ module Data.ADFA.IdVector(
   length, toList,
   indices, toAssoc,
   foldl',
+  accum,
   imap,
   (!),
   propagate
@@ -26,10 +27,13 @@ toList :: forall s a. IdVector s a -> [a]
 toList = coerce (V.toList @a)
 
 indices :: IdVector s a -> [NodeId s]
-indices (IV nv) = NodeId <$> [0 .. V.length nv]
+indices (IV nv) = NodeId <$> [0 .. V.length nv - 1]
 
 toAssoc :: IdVector s a -> [(NodeId s, a)]
 toAssoc (IV nv) = zip (NodeId <$> [0..]) (V.toList nv)
+
+accum :: forall a b s. (a -> b -> a) -> IdVector s a -> [(NodeId s, b)] -> IdVector s a
+accum f = coerce (V.accum f)
 
 foldl' :: forall a b s. (a -> b -> a) -> a -> IdVector s b -> a
 foldl' = coerce (V.foldl' @a @b)
