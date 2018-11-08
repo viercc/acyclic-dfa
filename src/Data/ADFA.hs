@@ -248,18 +248,24 @@ reverse (MkDFA nodes root) = instantiate rootKey stepKey
     rootKey = IdSet.fromList $
       filter (\x -> isAccepted (nodes ! x)) (IV.indices nodes)
     
+    reversed = reverseTable nodes
+    
+    stepKey xs =
+      let acceptsKey = IdSet.member root xs
+          edges = foldl' (Map.unionWith IdSet.union) Map.empty $
+            map (reversed !) $ IdSet.toList xs
+      in Node acceptsKey edges
+
+-- Reverse the direction of each edge in the given transition table of DFA.
+reverseTable :: (Ord c) => Table s c -> IV.IdVector s (Map c (IdSet.IdSet s))
+reverseTable nodes = reversed
+  where
     reversed0 = fmap (const Map.empty) nodes
     insertEdge node (x, c) =
       Map.insertWith IdSet.union c (IdSet.singleton x) node
     reversed = IV.accum insertEdge reversed0
       [ (y, (x, c)) | (x, node) <- IV.toAssoc nodes
                     , (c, y) <- Map.toList (outEdges node) ]
-
-    stepKey xs =
-      let acceptsKey = IdSet.member root xs
-          edges = foldl' (Map.unionWith IdSet.union) Map.empty $
-            map (reversed !) $ IdSet.toList xs
-      in Node acceptsKey edges
 
 -- | Relabel nodes to make all paths have increasing order.
 --   Applying @topSort@ also eliminates unreachable nodes.
