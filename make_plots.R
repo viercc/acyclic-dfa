@@ -4,15 +4,28 @@ srcfile <- commandArgs(TRUE)[[1]]
 
 data <- read.csv(srcfile)
 
-dataCombine <- data[data$Category=='combine',]
-dataQuery <- data[data$Category=='query',]
+dataCombineDict <- data[data$Category=='combine' & data$DataSet=='dict',]
+dataQueryDict <- data[data$Category=='query' & data$DataSet=='dict',]
+dataCombineURI <- data[data$Category=='combine' & data$DataSet=='URI',]
+dataQueryURI <- data[data$Category=='query' & data$DataSet=='URI',]
 
-plt <- ggplot(dataCombine, aes(x=Method, y=Mean, color=Name)) +
+plt <- ggplot(dataCombineDict, aes(x=Method, y=Mean, color=Name, shape=DataSet)) +
   scale_y_log10(breaks=10^(0:-8)) +
   geom_point()
-ggsave(file="doc/benchCombine.png", plot=plt, dpi=120, width=6, height=4)
+ggsave(file="doc/benchCombineDict.png", plot=plt, dpi=320, width=8, height=4)
 
-plt <- ggplot(dataQuery, aes(x=Method, y=Mean, color=Name)) +
+plt <- ggplot(dataCombineURI, aes(x=Method, y=Mean, color=Name, shape=DataSet)) +
   scale_y_log10(breaks=10^(0:-8)) +
   geom_point()
-ggsave(file="doc/benchQuery.png", plot=plt, dpi=120, width=6, height=6)
+ggsave(file="doc/benchCombineURI.png", plot=plt, dpi=320, width=8, height=4)
+
+plt <- ggplot(dataQueryDict, aes(x=Method, y=Mean, color=Name, shape=DataSet)) +
+  scale_y_log10(breaks=10^(0:-8)) +
+  geom_point()
+ggsave(file="doc/benchQueryDict.png", plot=plt, dpi=320, width=6, height=6)
+
+plt <- ggplot(dataQueryURI, aes(x=Method, y=Mean, color=Name, shape=DataSet)) +
+  scale_y_log10(breaks=10^(0:-8)) +
+  geom_point()
+ggsave(file="doc/benchQueryURI.png", plot=plt, dpi=320, width=6, height=6)
+

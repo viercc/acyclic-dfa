@@ -15,7 +15,7 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: nightly-2017-12-01
+resolver: lts-12.17
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -42,7 +42,7 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
 - git: https://github.com/viercc/trie-simple.git
-  commit: bda891f944a405fb3162d451a1796b7d9bd1acb8
+  commit: 089acae433fd653b2984e911ee5922404b744f9e
 
 # Override default flag values for local packages and extra-deps
 flags: {}
