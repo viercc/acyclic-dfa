@@ -14,8 +14,8 @@ import Control.Monad.Primitive
 import qualified Data.Vector.Mutable as MV
 
 data GrowVector' s a =
-    GV { gvecBase :: MV.MVector s a
-       , gvecLength :: Int }
+    GV { gvecBase :: {-# UNPACK #-} !(MV.MVector s a)
+       , gvecLength :: {-# UNPACK #-} !Int }
 
 newtype GrowVector s a = GVR (STRef s (GrowVector' s a))
 
