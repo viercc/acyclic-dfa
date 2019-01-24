@@ -7,7 +7,6 @@ module Data.ADFA.NodeId(
   NodeId(..),
 ) where
 
-import           Data.Bifunctor
 import           Control.DeepSeq
 
 -- | Node s ~ Tagged s Int
@@ -16,6 +15,3 @@ newtype NodeId s = NodeId { getNodeId :: Int }
 
 instance Show (NodeId s) where
   show (NodeId n) = show n
-
-instance Read (NodeId s) where
-  readsPrec p s = first NodeId <$> readsPrec p s
