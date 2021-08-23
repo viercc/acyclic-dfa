@@ -1,0 +1,10 @@
+cradle:
+  stack:
+    - path: "./src"
+      component: "acyclic-dfa:lib"
+
+    - path: "./test"
+      component: "acyclic-dfa:test:adfa-test"
+
+    - path: "./bench/adfa-benchmark.hs"
+      component: "acyclic-dfa:bench:adfa-benchmark"

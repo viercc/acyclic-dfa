@@ -9,6 +9,7 @@ module Data.ADFA.Gen(
 import           Test.QuickCheck
 
 import           Data.List          (foldl')
+import           Data.Maybe (fromMaybe)
 import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set        as Set
@@ -90,7 +91,8 @@ handgenADFA =
            return (x, c, x')
       let nodeData0 = Map.fromList [ (x, Node (Set.member x goals) Map.empty) | x <- ns ]
           nodeData = foldl' addEdge nodeData0 edges
-      Just result <- return $ fromTable 0 (Map.toList nodeData)
+          err = error "Bad generated DFA table!"
+          result = fromMaybe err $ fromTable 0 (Map.toList nodeData)
       return result
     
     addEdge nodes (x, c, x') =
