@@ -1,0 +1,6 @@
+packages: ./*.cabal
+
+source-repository-package
+    type: git
+    location: https://github.com/viercc/subtype-containers.git
+    tag: 16daa7f

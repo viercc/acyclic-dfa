@@ -1,7 +1,7 @@
 cradle:
-  stack:
+  cabal:
     - path: "./src"
-      component: "acyclic-dfa:lib"
+      component: "lib:acyclic-dfa"
 
     - path: "./test"
       component: "acyclic-dfa:test:adfa-test"

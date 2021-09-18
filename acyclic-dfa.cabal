@@ -15,20 +15,21 @@ library
   hs-source-dirs:      src
   exposed-modules:     Data.ADFA,
                        Data.ADFA.Internal,
-                       Data.ADFA.IdVector
-  other-modules:       Data.These,
-                       Data.ADFA.Util,
-                       Data.ADFA.NodeId,
-                       Data.ADFA.IdMap,
-                       Data.ADFA.IdSet,
-                       Data.ADFA.IdVector.Unsafe,
-                       Data.Vector.Growable
-  build-depends:       base >= 4.8 && < 5,
+                       Data.SVector,
+                       Data.SVector.Internal
+  other-modules:       Data.MSeq,
+                       Util
+  build-depends:       base >= 4.11 && < 5,
                        deepseq,
                        containers,
                        vector,
+                       these,
+                       semialign,
                        primitive,
-                       mtl
+                       mtl,
+                       reflection,
+                       coercible-subtypes,
+                       subtype-containers
   default-language:    Haskell2010
   ghc-options:         -Wall -Wno-dodgy-exports
 

@@ -33,16 +33,17 @@ import           Data.Set            (Set)
 import qualified Data.Set            as Set
 import           Data.Tuple          (swap)
 
-import qualified Data.ADFA.IdMap     as IdMap
-import qualified Data.ADFA.IdSet     as IdSet
-import qualified Data.ADFA.IdVector  as IV
+import qualified Newtype.IntMap     as IntMap
+import qualified Newtype.IntSet     as IntSet
+import qualified Data.SVector  as SV
 import           Data.These
+import           Data.Semialign (Semialign(..))
 
 import qualified Control.Applicative
 import           Control.Monad.State
 
 import           Data.ADFA.Internal
-import           Data.ADFA.Util
+import           Util
 
 -- | Enumerates all unique strings an ADFA accepts.
 --
@@ -68,7 +69,7 @@ stringCount = foldNodes' f
 
 -- | Returns the number of nodes.
 size :: ADFA c -> Int
-size (MkDFA nodes _) = IV.length nodes
+size (MkDFA nodes _) = length nodes
 
 -- | Equivalence of ADFA.
 equivalent :: (Ord c) => ADFA c -> ADFA c -> Bool
@@ -87,10 +88,10 @@ equivalent (prune -> MkDFA nodesA rootA) (prune -> MkDFA nodesB rootB) =
     eqvEdges ((ca,a):as') ((cb,b):bs') =
       ca == cb && eqv (a,b) && eqvEdges as' bs'
 
-step :: (Ord c) => Table s c -> c -> NodeId s -> Maybe (NodeId s)
+step :: (Ord c) => Table s c -> c -> Key s -> Maybe (Key s)
 step dfa c x = Map.lookup c $ dfa !> x
 
-steps :: (Ord c) => Table s c -> [c] -> NodeId s -> Maybe (NodeId s)
+steps :: (Ord c) => Table s c -> [c] -> Key s -> Maybe (Key s)
 steps dfa = loop
  where
   loop []     x = Just x
@@ -127,7 +128,7 @@ union (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
     stepKey (These a b) =
       let Node acceptsA edgesA = nodesA ! a
           Node acceptsB edgesB = nodesB ! b
-      in Node (acceptsA || acceptsB) (alignMap edgesA edgesB)
+      in Node (acceptsA || acceptsB) (align edgesA edgesB)
 
 -- | Take union of all ADFAs in a list.
 unions :: (Ord c) => [ADFA c] -> ADFA c
@@ -174,7 +175,7 @@ symdiff (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
     stepKey (These a b) =
       let Node acceptsA edgesA = nodesA ! a
           Node acceptsB edgesB = nodesB ! b
-      in Node (acceptsA `xor` acceptsB) (alignMap edgesA edgesB)
+      in Node (acceptsA `xor` acceptsB) (align edgesA edgesB)
 
 -- | @append x y@ constructs an ADFA which accepts a string @cs@
 --   iff there exists @as@ and @bs@ such that @as ++ bs == cs@,
@@ -182,20 +183,20 @@ symdiff (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
 append :: (Ord c) => ADFA c -> ADFA c -> ADFA c
 append (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
   where
-    rootKey = (Just rootA, IdSet.empty)
+    rootKey = (Just rootA, emptyKeys)
 
     node0 = Node False Map.empty
 
     (<|>) = (Control.Applicative.<|>)
-    unionKey (mayA1, bs1) (mayA2, bs2) = (mayA1 <|> mayA2, bs1 `IdSet.union` bs2)
-    fromA a = (Just a, IdSet.empty)
-    fromB b = (Nothing, IdSet.singleton b)
+    unionKey (mayA1, bs1) (mayA2, bs2) = (mayA1 <|> mayA2, bs1 `IntSet.union` bs2)
+    fromA a = (Just a, emptyKeys)
+    fromB b = (Nothing, singletonKeys b)
 
     rootNodeB = nodesB ! rootB
 
     stepKey (mayA, bSet) =
       let Node acceptsA edgesA = maybe node0 (nodesA !) mayA
-          nodeBs = (nodesB !) <$> IdSet.toAscList bSet
+          nodeBs = (nodesB !) <$> IntSet.toAscList bSet
           nodeBs' = if acceptsA then rootNodeB : nodeBs else nodeBs
           acceptsKey = any isAccepted nodeBs'
           edgesKey =
@@ -208,7 +209,7 @@ append (MkDFA nodesA rootA) (MkDFA nodesB rootB) = instantiate rootKey stepKey
 prefixes :: ADFA c -> ADFA c
 prefixes (MkDFA nodes root) = MkDFA nodes' root
   where
-    nodes' = snd <$> IV.propagate prefixes' nodes
+    nodes' = snd <$> SV.propagate prefixes' nodes
     prefixes' (Node acceptsX edgesX) =
       let edgesX' = snd <$> edgesX
           nonEmptyX = acceptsX || any fst edgesX
@@ -220,22 +221,22 @@ suffixes (MkDFA nodes root) = instantiate rootKey stepKey
   where
     reachable accum [] = accum
     reachable accum (x:xs)
-      | x `IdSet.member` accum = reachable accum xs
+      | x `IntSet.member` accum = reachable accum xs
       | otherwise            =
-          let accum' = IdSet.insert x accum
+          let accum' = IntSet.insert x accum
               ys = Map.elems $ nodes !> x
           in reachable accum' (ys ++ xs)
 
-    rootKey = reachable IdSet.empty [root]
+    rootKey = reachable emptyKeys [root]
     stepKey xs =
       let node0 = Node False Map.empty
           merge (Node acceptsKey edgesKey) x =
             let Node acceptsX edgesX = nodes ! x
                 acceptsKey' = acceptsKey || acceptsX
-                edgesX' = Map.map IdSet.singleton edgesX
-                edgesKey' = Map.unionWith IdSet.union edgesKey edgesX'
+                edgesX' = Map.map singletonKeys edgesX
+                edgesKey' = Map.unionWith IntSet.union edgesKey edgesX'
             in Node acceptsKey' edgesKey'
-      in IdSet.foldl' merge node0 xs
+      in foldl' merge node0 xs
 
 -- | Accepts all contiguous substrings of currently accepted strings.
 infixes :: (Ord c) => ADFA c -> ADFA c
@@ -245,40 +246,40 @@ infixes = suffixes . prefixes
 reverse :: (Ord c) => ADFA c -> ADFA c
 reverse (MkDFA nodes root) = instantiate rootKey stepKey
   where
-    rootKey = IdSet.fromList $
-      filter (\x -> isAccepted (nodes ! x)) (IV.indices nodes)
+    rootKey = IntSet.fromList SV.keyIsInt $
+      filter (\x -> isAccepted (nodes ! x)) (SV.indices nodes)
     
     reversed = reverseTable nodes
     
     stepKey xs =
-      let acceptsKey = IdSet.member root xs
-          edges = foldl' (Map.unionWith IdSet.union) Map.empty $
-            map (reversed !) $ IdSet.toList xs
+      let acceptsKey = IntSet.member root xs
+          edges = foldl' (Map.unionWith IntSet.union) Map.empty $
+            map (reversed !) $ IntSet.toList xs
       in Node acceptsKey edges
 
 -- Reverse the direction of each edge in the given transition table of DFA.
-reverseTable :: (Ord c) => Table s c -> IV.IdVector s (Map c (IdSet.IdSet s))
+reverseTable :: (Ord c) => Table s c -> SV.SVector s (Map c (IntSet.IntSet (Key s)))
 reverseTable nodes = reversed
   where
     reversed0 = fmap (const Map.empty) nodes
     insertEdge node (x, c) =
-      Map.insertWith IdSet.union c (IdSet.singleton x) node
-    reversed = IV.accum insertEdge reversed0
-      [ (y, (x, c)) | (x, node) <- IV.toAssoc nodes
+      Map.insertWith IntSet.union c (singletonKeys x) node
+    reversed = SV.accum insertEdge reversed0
+      [ (y, (x, c)) | (x, node) <- SV.toAssoc nodes
                     , (c, y) <- Map.toList (outEdges node) ]
 
 -- | Relabel nodes to make all paths have increasing order.
 --   Applying @topSort@ also eliminates unreachable nodes.
 topSort :: ADFA c -> ADFA c
 topSort (MkDFA nodes root) =
-  unsafeRenumber root $ topologicalSort root (nodes !) (Map.elems . outEdges)
+  unsafeRenumber root $ topologicalSort SV.keyIsInt root (nodes !) (Map.elems . outEdges)
 
 -- | Remove empty nodes which is not accept node and only goes to
 --   other empty nodes.
 prune :: ADFA c -> ADFA c
 prune (MkDFA nodes root) = if rootIsEmpty then empty else dfa'
   where
-    table = IV.propagate pruneStep nodes
+    table = SV.propagate pruneStep nodes
 
     pruneStep (Node acceptsX edgesX) =
       let edgesX' = Map.mapMaybe id edgesX
@@ -290,9 +291,9 @@ prune (MkDFA nodes root) = if rootIsEmpty then empty else dfa'
       Just _  -> False
 
     dfa' = unsafeRenumber root
-      [ (x,node) | (x, Just node) <- IV.toAssoc table ]
+      [ (x,node) | (x, Just node) <- SV.toAssoc table ]
 
-type ReverseIndex s c = Map (Node c (NodeId s)) (NodeId s)
+type ReverseIndex s c = Map (Node c (Key s)) (Key s)
 
 -- | Minimizes an ADFA by removing redundant nodes.
 --   Applying @minify@ also removes unreachable nodes,
@@ -301,11 +302,11 @@ minify :: forall c. (Ord c) => ADFA c -> ADFA c
 minify (MkDFA nodes root) =
   postprocess $ execState (go root) (dup0, subst0)
   where
-    subst0 = IdMap.empty
+    subst0 = IntMap.empty SV.keyIsInt
     dup0 = Map.empty
 
-    addNode :: NodeId s -> Node c (NodeId s) -> ReverseIndex s c ->
-                (NodeId s, ReverseIndex s c)
+    addNode :: Key s -> Node c (Key s) -> ReverseIndex s c ->
+                (Key s, ReverseIndex s c)
     addNode x node dup =
       case Map.insertLookupWithKey (\_ _ x0 -> x0) node x dup of
         (Nothing, dup') -> (x, dup')
@@ -313,7 +314,7 @@ minify (MkDFA nodes root) =
 
     go x = do
       (_, subst) <- get
-      case IdMap.lookup x subst of
+      case IntMap.lookup x subst of
         Nothing -> do
           let Node accepted neighbours = nodes ! x
           neighbours' <- traverse go neighbours
@@ -321,16 +322,16 @@ minify (MkDFA nodes root) =
               getRemoved = Map.null neighbours''  && not accepted
           if getRemoved
             then do
-              modifySnd (IdMap.insert x Nothing)
+              modifySnd (IntMap.insert x Nothing)
               return Nothing
             else do
               x0 <- stateFst (addNode x (Node accepted neighbours''))
-              modifySnd (IdMap.insert x (Just x0))
+              modifySnd (IntMap.insert x (Just x0))
               return (Just x0)
         Just r -> return r
 
     postprocess (dup, subst) =
-      case IdMap.lookup root subst of
+      case IntMap.lookup root subst of
         Just (Just root') ->
           let table = map swap $ Map.toList dup
           in  unsafeRenumber root' table
@@ -357,6 +358,12 @@ fromSet :: Eq c => Set [c] -> ADFA c
 fromSet = fromAscList . Set.toAscList
 
 -- Utilities
+
+emptyKeys :: IntSet.IntSet (Key s)
+emptyKeys = IntSet.empty SV.keyIsInt
+
+singletonKeys :: Key s -> IntSet.IntSet (Key s)
+singletonKeys = IntSet.singleton SV.keyIsInt
 
 modifySnd :: (MonadState (a,b) m) => (b -> b) -> m ()
 modifySnd f = get >>= \(a, b) -> let !b' = f b in put (a, b')

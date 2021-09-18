@@ -1,6 +1,6 @@
 {-| Internals for Data.ADFA -}
 {-# LANGUAGE DeriveTraversable         #-}
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE RankNTypes                #-}
@@ -22,7 +22,7 @@ module Data.ADFA.Internal(
   debugShow, debugPrint,
 
   -- * Internals
-  NodeId(),
+  Key(),
   (!), (!>), accepts,
   foldNodes,
   foldNodes',
@@ -36,45 +36,54 @@ import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import qualified Data.Map.Lazy             as LMap
 import           Data.Maybe                (fromMaybe)
-import           Data.Semigroup
+
 import qualified Data.Set                  as Set
 
-import qualified Data.Vector               as V
-import qualified Data.Vector.Growable      as GV
+import Control.Applicative hiding (empty)
+import qualified Control.Category(id)
+import Data.Type.Coercion.Sub hiding (instantiate)
 
-import qualified Data.ADFA.IdMap           as IdMap
-import qualified Data.ADFA.IdVector        as IV
-import           Data.ADFA.IdVector.Unsafe
+import qualified Data.Vector               as V
+import qualified Data.MSeq                 as MS
+
+import qualified Newtype.IntMap            as IM
+import Data.SVector as SV
+import qualified Data.SVector.Internal as Unsafe
 
 import           Control.DeepSeq
 
 import           Data.Functor.Classes
+import Control.Monad.ST
+import Data.STRef
 
-import           Data.ADFA.NodeId
+refl :: Sub a a
+refl = Control.Category.id
 
 -- | Acyclic DFA.
-data ADFA c =
-  forall s. MkDFA
-    { getNodes :: !(Table s c)
-    , rootNode :: !(NodeId s) }
+data ADFA c where
+  MkDFA ::
+    {
+      getNodes :: !(Table s c),
+      rootNode :: !(Key s)
+    } -> ADFA c
 
-type Table s c = IV.IdVector s (Node c (NodeId s))
+type Table s c = SVector s (Node c (Key s))
 
 deriving instance Show c => Show (ADFA c)
 
 instance Eq c => Eq (ADFA c) where
-  MkDFA (IV nodesA) rootA == MkDFA (IV nodesB) rootB =
-    liftEq (liftEq nodeEq) nodesA nodesB &&
-    getNodeId rootA == getNodeId rootB
+  MkDFA nodesA rootA == MkDFA nodesB rootB =
+    liftEq (liftEq eqKey) (getRawVector nodesA) (getRawVector nodesB) &&
+    getKey rootA == getKey rootB
     where
-      nodeEq (NodeId x) (NodeId y) = x == y
+      eqKey = upcastWith (keyIsInt `arrR` keyIsInt `arrR` refl) (==)
 
 instance Ord c => Ord (ADFA c) where
-  MkDFA (IV nodesA) rootA `compare` MkDFA (IV nodesB) rootB =
-    liftCompare (liftCompare nodeCompare) nodesA nodesB <>
-    getNodeId rootA `compare` getNodeId rootB
+  MkDFA nodesA rootA `compare` MkDFA nodesB rootB =
+    liftCompare (liftCompare compareKey) (getRawVector nodesA) (getRawVector nodesB) <>
+    rootA `compareKey` rootB
     where
-      nodeCompare (NodeId x) (NodeId y) = compare x y
+      compareKey = upcastWith (keyIsInt `arrR` keyIsInt `arrR` refl) compare
 
 instance NFData c => NFData (ADFA c) where
   rnf (MkDFA nodes _) = rnf nodes
@@ -96,87 +105,95 @@ instance (Ord c) => Ord1 (Node c) where
 
 -- * Smart ADFA Constructors
 
+makeDFA :: V.Vector (Node c Int) -> Int -> ADFA c
+makeDFA nodes root = fromRawVector nodes $
+  \nodes' check ->
+     let check' i = maybe (Left i) Right $ check i
+         nodes'' = traverse (traverse check') nodes'
+     in case liftA2 (,) nodes'' (check' root) of
+          Left i -> error $ "Out-of-bounds:" ++ show i
+          Right (checkedNodes, checkedRoot) -> MkDFA checkedNodes checkedRoot
+
+unsafeMakeDFA :: V.Vector (Node c Int) -> Int -> ADFA c
+unsafeMakeDFA nodes root = MkDFA (Unsafe.SV $ fmap (fmap Unsafe.Key) nodes) (Unsafe.Key root)
+
 -- | Empty ADFA which accepts no string.
 empty :: ADFA c
-empty = MkDFA nodes (NodeId 0)
-  where nodes = IV $ V.fromList [Node False Map.empty]
+empty = makeDFA (V.singleton (Node False Map.empty)) 0
 
 -- | Construct from a string.
 string :: [c] -> ADFA c
-string cs = MkDFA nodes (NodeId 0)
-  where makeNode i c = Node False (Map.singleton c (NodeId (i+1)))
-        nodes = IV $ V.fromList $ zipWith makeNode [0..] cs ++ [Node True Map.empty]
+string cs = makeDFA nodes 0
+  where makeNode i c = Node False (Map.singleton c (i+1))
+        nodes = V.fromList $ zipWith makeNode [0..] cs ++ [Node True Map.empty]
 
 -- | Construct from strings. Resulted ADFA has tree-like structure,
 --   which might not be the most compact representation.
-strings :: (Ord c) => [[c]] -> ADFA c
-strings css = MkDFA nodes (NodeId 0)
+strings :: forall c. (Ord c) => [[c]] -> ADFA c
+strings css = makeDFA nodes 0
   where
-    node0 = Node False Map.empty
-    nodes = IV $ V.create $ do
-      vnodes <- GV.new 1
-      GV.unsafeWrite vnodes 0 node0
-      mapM_ (insert vnodes 0) css
-      GV.unsafeToMVector vnodes
+    nodes = V.create $ do
+      vnodes <- MS.new
+      MS.unsafeWrite vnodes 0 (Node False Map.empty)
+      totalLen <- insertAll vnodes 1 css
+      MS.toMVector totalLen vnodes
 
-    insert vnodes x [] =
-      GV.modify vnodes (\node -> node{isAccepted = True}) x
-    insert vnodes x (c:cs) = do
-      Node accX edgesX <- GV.unsafeRead vnodes x
-      case Map.lookup c edgesX of
-        Nothing -> do
-          y <- GV.length vnodes
-          let node' = Node accX $ Map.insert c (NodeId y) edgesX
-          GV.grow 1 vnodes
-          GV.unsafeWrite vnodes x node'
-          GV.unsafeWrite vnodes y node0
-          insert vnodes y cs
-        Just (NodeId y) ->
-          insert vnodes y cs
+    insertAll :: MS.MSeq s (Node c Int) -> Int -> [[c]] -> ST s Int
+    insertAll _vnodes len [] = return len
+    insertAll vnodes len (word:rest) = loop 0 word >>= \adds -> insertAll vnodes (len + adds) rest
+      where
+        loop x [] = do
+          MS.modify vnodes (\node -> node{isAccepted = True}) x
+          return 0
+        loop x (c:cs) = do
+          Node accX edgesX <- MS.unsafeRead vnodes x
+          case Map.lookup c edgesX of
+            Just y -> loop y cs
+            Nothing -> do
+              let node' = Node accX $ Map.insert c len edgesX
+              MS.unsafeWrite vnodes x node'
+              let links = zip cs [1 .. length cs]
+                  newNodes = [ Node False (Map.singleton a (len + i)) | (a,i) <- links ] ++ [ Node True Map.empty ]
+              MS.writeMany (MS.sliceFrom len vnodes) newNodes
+              return (length (c:cs))
 
 instantiate :: (Ord k) => k -> (k -> Node c k) -> ADFA c
-instantiate rootKey stepKey = MkDFA nodes (NodeId 0)
+instantiate rootKey stepKey = makeDFA nodes 0
   where
-    nodes = IV $ V.create $ do
-      vnodes <- GV.new 0
-      _ <- assign vnodes rootKey Map.empty
-      GV.unsafeToMVector vnodes
-
-    assign vnodes key subst =
-      case Map.lookup key subst of
-        Just i -> return (i, subst)
-        Nothing ->
-          do x <- GV.length vnodes
-             GV.grow 1 vnodes
-             let subst' = Map.insert key (NodeId x) subst
-                 Node t e = stepKey key
-             (e', subst'') <- advance vnodes e subst'
-             GV.unsafeWrite vnodes x (Node t e')
-             return (NodeId x, subst'')
-
-    advance vnodes edges subst' =
-      do (es', subst'') <- advanceLoop vnodes [] (Map.toAscList edges) subst'
-         return (Map.fromDistinctDescList es', subst'')
-
-    advanceLoop _      acc []           subst = return (acc, subst)
-    advanceLoop vnodes acc ((c,k):rest) subst =
-      do (y, subst') <- assign vnodes k subst
-         advanceLoop vnodes ((c,y):acc) rest subst'
+    nodes = V.create $ do
+      vnodes <- MS.new
+      substRef <- newSTRef Map.empty
+      let assign key = do
+            subst <- readSTRef substRef
+            case Map.lookup key subst of
+              Just x  -> return x
+              Nothing -> newNode key
+          newNode key = do
+            subst <- readSTRef substRef
+            let x = Map.size subst
+            writeSTRef substRef $! Map.insert key x subst
+            nodeX <- traverse assign (stepKey key)
+            MS.unsafeWrite vnodes x nodeX
+            return x
+      _ <- assign rootKey
+      totalSize <- Map.size <$> readSTRef substRef
+      MS.toMVector totalSize vnodes
 
 treeInstantiate :: k -> (k -> Node c k) -> ADFA c
-treeInstantiate rootKey stepKey = MkDFA nodes (NodeId 0)
+treeInstantiate rootKey stepKey = makeDFA nodes 0
   where
-    nodes = IV $ V.create $ do
-      vnodes <- GV.new 0
-      _ <- assign vnodes rootKey
-      GV.unsafeToMVector vnodes
-
-    assign vnodes key =
-      do x <- GV.length vnodes
-         GV.grow 1 vnodes
-         node <- traverse (assign vnodes) (stepKey key)
-         GV.unsafeWrite vnodes x node
-         return (NodeId x)
+    nodes = V.create $ do
+      vnodes <- MS.new
+      counter <- newSTRef (0 :: Int)
+      let assign key = do
+            x <- readSTRef counter
+            modifySTRef' counter succ
+            nodeX <- traverse assign (stepKey key)
+            MS.unsafeWrite vnodes x nodeX
+            return x
+      _ <- assign rootKey
+      totalSize <- readSTRef counter
+      MS.toMVector totalSize vnodes
 
 fromTable :: Ord k => k -> [(k, Node c k)] -> Maybe (ADFA c)
 fromTable root nodes =
@@ -207,15 +224,15 @@ isAcyclic g = go (Map.keys g) Map.empty
       | otherwise =
           let children = fromMaybe [] $ Map.lookup k g
               reach' = foldl' reachability reach children
-              f accum j =
+              f acc j =
                 let descendants = fromMaybe Set.empty $ Map.lookup j reach'
-                in accum `Set.union` descendants
+                in acc `Set.union` descendants
               rs0 = Set.fromList children
               rs = foldl' f rs0 children
           in Map.insert k rs reach'
 
 -- | Consume internal structures
-withInternals :: ADFA c -> (forall s. NodeId s -> Table s c -> r) -> r
+withInternals :: ADFA c -> (forall s. Key s -> Table s c -> r) -> r
 withInternals (MkDFA nodes root) f = f root nodes
 
 -- * Debug
@@ -224,7 +241,7 @@ debugPrint = putStrLn . debugShow
 
 debugShow :: (Show c) => ADFA c -> String
 debugShow (MkDFA nodes root) =
-  unlines $ concatMap oneNode (IV.toAssoc nodes)
+  unlines $ concatMap oneNode (toAssoc nodes)
   where
     showNodePretty x t =
       let rootIndicator = if x == root then "r" else " "
@@ -235,13 +252,10 @@ debugShow (MkDFA nodes root) =
 
 -- * Utility
 
-(!) :: IV.IdVector s a -> NodeId s -> a
-(!) = (IV.!)
-
-(!>) :: Table s c -> NodeId s -> Map c (NodeId s)
+(!>) :: Table s c -> Key s -> Map c (Key s)
 (!>) nodes x = outEdges (nodes ! x)
 
-accepts :: Table s c -> NodeId s -> Bool
+accepts :: Table s c -> Key s -> Bool
 accepts dfa x = isAccepted $ dfa ! x
 
 -- | Fold Acyclic DFA structure.
@@ -260,28 +274,28 @@ foldNodes' f (MkDFA nodes root) = table ! root
         g (Node t e) = f t (LMap.map (table !) e)
 
 -- * Unsafe operations
-unsafeRenumber :: NodeId s -> [(NodeId s, Node c (NodeId s))] -> ADFA c
-unsafeRenumber rootX sortedNodes = MkDFA nodes rootY
+unsafeRenumber :: Key s -> [(Key s, Node c (Key s))] -> ADFA c
+unsafeRenumber rootX sortedNodes = unsafeMakeDFA nodes rootY
   where
     xs = map fst sortedNodes
-    subst = IdMap.fromList $ zip xs (NodeId <$> [0..])
-    n = IdMap.size subst
-
-    applySubst x = case IdMap.lookup x subst of
+    subst = IM.fromList keyIsInt $ zip xs [0..]
+    n = IM.size subst
+   
+    applySubst x = case IM.lookup x subst of
       Nothing -> error "renumber: Never reach here"
       Just y  -> y
     rootY = applySubst rootX
     nodesY = map (fmap applySubst . snd) sortedNodes
-    nodes = IV $ V.fromListN n nodesY
+    nodes = V.fromListN n nodesY
 
 unsafeRenumberOrd :: (Ord k) => k -> [(k, Node c k)] -> ADFA c
-unsafeRenumberOrd rootX sortedNodes = MkDFA nodes rootY
+unsafeRenumberOrd rootX sortedNodes = unsafeMakeDFA nodes rootY
   where
     xs = map fst sortedNodes
-    subst = Map.fromList $ zip xs (NodeId <$> [0..])
+    subst = Map.fromList $ zip xs [0..]
     n = Map.size subst
 
     applySubst = fmap (subst Map.!)
     rootY = subst Map.! rootX
-    nodes = IV $ V.fromListN n $ map (applySubst . snd) sortedNodes
+    nodes = V.fromListN n $ map (applySubst . snd) sortedNodes
 

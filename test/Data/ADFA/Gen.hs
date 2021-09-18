@@ -17,7 +17,8 @@ import qualified Data.Set        as Set
 import           Common
 import           Data.ADFA
 import           Data.ADFA.Internal
-import qualified Data.ADFA.IdVector as IV
+import qualified Data.SVector as SV
+import qualified Data.Foldable as Foldable
 
 newtype ADFA' = ADFA' (ADFA C)
 
@@ -38,9 +39,9 @@ toTable :: ADFA c -> (Int, Map Int (Node c Int))
 toTable dfa = withInternals dfa idToInt
   where
     idToInt root table =
-      let subst = Map.fromList $ zip (IV.indices table) [0..]
+      let subst = Map.fromList $ zip (SV.indices table) [0..]
           f = (subst Map.!)
-          table' = Map.fromList $ zip [0..] (IV.toList table)
+          table' = Map.fromList $ zip [0..] (Foldable.toList table)
           table'' = Map.map (fmap f) table'
       in (f root, table'')
 
