@@ -1,16 +1,17 @@
 import pandas as pd
+import numpy as np
 
 schema = [
   ('Workload', 'category'),
   ('Type', 'category'),
   ('Category', 'category'),
   ('Method', 'category'),
-  ('Time', pd.float64),
-  ('TimeLB', pd.float64),
-  ('TimeUB', pd.float64),
-  ('TimeSD', pd.float64),
-  ('TimeSDLB', pd.float64),
-  ('TimeSDUB', pd.float64)
+  ('Time', np.float64),
+  ('TimeLB', np.float64),
+  ('TimeUB', np.float64),
+  ('TimeSD', np.float64),
+  ('TimeSDLB', np.float64),
+  ('TimeSDUB', np.float64)
 ]
 names = [ p[0] for p in schema if p ]
 dtype = dict(schema)
@@ -32,7 +33,9 @@ baseline_control_time = baseline_time['URI', 'Trie', :, 'reverse'][0]
 after_control_time = after_time['URI', 'Trie', :, 'reverse'][0]
 control_ratio = after_control_time / baseline_control_time
 
-time_ratio = control_ratio * after_time[:, 'ADFA'] / baseline_time[:, 'ADFA']
+time_ratio = after_time[:, 'ADFA'] / baseline_time[:, 'ADFA'] / control_ratio
 
 print("Regressions:")
 print(time_ratio[time_ratio > 1.1])
+print("Improvements:")
+print(time_ratio[time_ratio < 0.9])

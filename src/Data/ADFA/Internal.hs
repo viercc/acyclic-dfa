@@ -17,7 +17,7 @@ module Data.ADFA.Internal(
 
   -- * low-level running
   withInternals,
-  
+
   -- * Debug
   debugShow, debugPrint,
 
@@ -26,12 +26,12 @@ module Data.ADFA.Internal(
   (!), (!>), accepts,
   foldNodes,
   foldNodes',
-  
+
   -- * Unsafe construction
   unsafeRenumber, unsafeRenumberOrd,
 ) where
 
-import           Data.Foldable             (foldl')
+import           Data.Foldable             (foldl', for_)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import qualified Data.Map.Lazy             as LMap
@@ -134,7 +134,7 @@ strings css = makeDFA nodes 0
   where
     nodes = V.create $ do
       vnodes <- MS.new
-      MS.unsafeWrite vnodes 0 (Node False Map.empty)
+      MS.write vnodes 0 (Node False Map.empty)
       totalLen <- insertAll vnodes 1 css
       MS.toMVector totalLen vnodes
 
@@ -146,15 +146,16 @@ strings css = makeDFA nodes 0
           MS.modify vnodes (\node -> node{isAccepted = True}) x
           return 0
         loop x (c:cs) = do
-          Node accX edgesX <- MS.unsafeRead vnodes x
+          Node accX edgesX <- MS.read vnodes x
           case Map.lookup c edgesX of
             Just y -> loop y cs
             Nothing -> do
               let node' = Node accX $ Map.insert c len edgesX
-              MS.unsafeWrite vnodes x node'
-              let links = zip cs [1 .. length cs]
+              MS.write vnodes x node'
+              let restLen = length cs
+                  links = zip cs [1 .. restLen]
                   newNodes = [ Node False (Map.singleton a (len + i)) | (a,i) <- links ] ++ [ Node True Map.empty ]
-              MS.writeMany (MS.sliceFrom len vnodes) newNodes
+              for_ (zip [len ..] newNodes) $ uncurry (MS.write vnodes)
               return (length (c:cs))
 
 instantiate :: (Ord k) => k -> (k -> Node c k) -> ADFA c
@@ -173,7 +174,7 @@ instantiate rootKey stepKey = makeDFA nodes 0
             let x = Map.size subst
             writeSTRef substRef $! Map.insert key x subst
             nodeX <- traverse assign (stepKey key)
-            MS.unsafeWrite vnodes x nodeX
+            MS.write vnodes x nodeX
             return x
       _ <- assign rootKey
       totalSize <- Map.size <$> readSTRef substRef
@@ -189,7 +190,7 @@ treeInstantiate rootKey stepKey = makeDFA nodes 0
             x <- readSTRef counter
             modifySTRef' counter succ
             nodeX <- traverse assign (stepKey key)
-            MS.unsafeWrite vnodes x nodeX
+            MS.write vnodes x nodeX
             return x
       _ <- assign rootKey
       totalSize <- readSTRef counter
@@ -280,7 +281,7 @@ unsafeRenumber rootX sortedNodes = unsafeMakeDFA nodes rootY
     xs = map fst sortedNodes
     subst = IM.fromList keyIsInt $ zip xs [0..]
     n = IM.size subst
-   
+
     applySubst x = case IM.lookup x subst of
       Nothing -> error "renumber: Never reach here"
       Just y  -> y
