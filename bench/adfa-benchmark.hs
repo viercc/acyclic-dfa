@@ -16,6 +16,7 @@ import Data.Word
 import qualified System.Random.MWC                as R
 import qualified System.Random.MWC.CondensedTable as R
 import qualified System.Random.MWC.Distributions  as R
+import Control.DeepSeq (deepseq)
 
 numRandomStr :: Int
 numRandomStr = 1000
@@ -23,32 +24,35 @@ numRandomStr = 1000
 seed :: Word32 -> V.Vector Word32
 seed w = V.fromList [1573289798, 32614861, w]
 
-shuffleList :: R.GenIO -> [a] -> IO [a]
-shuffleList g xs = V.toList <$> R.uniformShuffle (V.fromList xs) g
+shuffle :: R.GenIO -> V.Vector a -> IO (V.Vector a)
+shuffle g xs = R.uniformShuffle xs g
 
-dictAmEnFile, dictBrEnFile, uri1File, uri2File :: FilePath
+dictAmEnFile, dictBrEnFile, uriFile :: FilePath
 dictAmEnFile = "/usr/share/dict/american-english"
 dictBrEnFile = "/usr/share/dict/british-english"
-uri1File = "benchdata/externallinks.txt.1"
-uri2File = "benchdata/externallinks.txt.2"
+uriFile = "bench/externallinks.txt.all"
 
 dictDataSet :: IO ([String], [String], [String], [String])
 dictDataSet =
   do g <- R.initialize (seed 1)
      dictASorted <- sort . lines <$> readFile dictAmEnFile
-     dictAShuf <- shuffleList g dictASorted
+     dictAShuf <- shuffle g (V.fromList dictASorted)
      dictB <- lines <$> readFile dictBrEnFile
-     let small = take 1000 dictAShuf
-     return (dictASorted, dictAShuf, dictB, small)
+     let small = V.take 1000 dictAShuf
+     return (dictASorted, V.toList dictAShuf, dictB, V.toList small)
 
 uriDataSet :: IO ([String], [String], [String], [String])
 uriDataSet =
-  do g <- R.initialize (seed 1)
-     dictASorted <- sort . lines <$> readFile uri1File 
-     dictAShuf <- shuffleList g dictASorted
-     dictB <- lines <$> readFile uri2File
-     let small = take 1000 dictAShuf
-     return (dictASorted, dictAShuf, dictB, small)
+  do g <- R.initialize (seed 2)
+     uris <- V.fromList . lines <$> readFile uriFile
+     urisShuf <- shuffle g uris
+     let sampleSize = V.length uris `div` 10
+         overlapSize = sampleSize `div` 2
+         dictA = V.toList $ V.slice 0 sampleSize urisShuf
+         dictB = V.toList $ V.slice (sampleSize - overlapSize) sampleSize urisShuf
+         dictASorted = sort dictA
+         small = take 1000 dictA
+     return $ dictASorted `deepseq` (dictASorted, dictA, dictB, small)
 
 randomStrs :: IO [String]
 randomStrs =
