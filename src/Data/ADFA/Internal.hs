@@ -7,7 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE StandaloneDeriving        #-}
 module Data.ADFA.Internal(
-  ADFA(..),
+  ADFA(..), makeDFA, unsafeMakeDFA,
   Node(..),
   Table,
   empty, string, strings,
@@ -120,18 +120,18 @@ unsafeMakeDFA nodes root = MkDFA (Unsafe.SV $ fmap (fmap Unsafe.Key) nodes) (Uns
 
 -- | Empty ADFA which accepts no string.
 empty :: ADFA c
-empty = makeDFA (V.singleton (Node False Map.empty)) 0
+empty = unsafeMakeDFA (V.singleton (Node False Map.empty)) 0
 
 -- | Construct from a string.
 string :: [c] -> ADFA c
-string cs = makeDFA nodes 0
+string cs = unsafeMakeDFA nodes 0
   where makeNode i c = Node False (Map.singleton c (i+1))
         nodes = V.fromList $ zipWith makeNode [0..] cs ++ [Node True Map.empty]
 
 -- | Construct from strings. Resulted ADFA has tree-like structure,
 --   which might not be the most compact representation.
 strings :: forall c. (Ord c) => [[c]] -> ADFA c
-strings css = makeDFA nodes 0
+strings css = unsafeMakeDFA nodes 0
   where
     nodes = V.create $ do
       vnodes <- GV.new 1
@@ -161,7 +161,7 @@ strings css = makeDFA nodes 0
               return (length (c:cs))
 
 instantiate :: (Ord k) => k -> (k -> Node c k) -> ADFA c
-instantiate rootKey stepKey = makeDFA nodes 0
+instantiate rootKey stepKey = unsafeMakeDFA nodes 0
   where
     nodes = V.create $ do
       vnodes <- GV.new 0
@@ -183,7 +183,7 @@ instantiate rootKey stepKey = makeDFA nodes 0
       GV.unsafeToMVector vnodes
 
 treeInstantiate :: k -> (k -> Node c k) -> ADFA c
-treeInstantiate rootKey stepKey = makeDFA nodes 0
+treeInstantiate rootKey stepKey = unsafeMakeDFA nodes 0
   where
     nodes = V.create $ do
       vnodes <- GV.new 0
