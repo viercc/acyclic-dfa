@@ -44,7 +44,8 @@ import qualified Control.Category(id)
 import Data.Type.Coercion.Sub hiding (instantiate)
 
 import qualified Data.Vector               as V
-import qualified Data.MSeq                 as MS
+--import qualified Data.MSeq                 as MS
+import qualified Data.Vector.Growable as GV
 
 import qualified Newtype.IntMap            as IM
 import Data.SVector as SV
@@ -133,36 +134,37 @@ strings :: forall c. (Ord c) => [[c]] -> ADFA c
 strings css = makeDFA nodes 0
   where
     nodes = V.create $ do
-      vnodes <- MS.new
-      MS.write vnodes 0 (Node False Map.empty)
-      totalLen <- insertAll vnodes 1 css
-      MS.toMVector totalLen vnodes
+      vnodes <- GV.new 1
+      GV.unsafeWrite vnodes 0 (Node False Map.empty)
+      _ <- insertAll vnodes 1 css
+      GV.unsafeToMVector vnodes
 
-    insertAll :: MS.MSeq s (Node c Int) -> Int -> [[c]] -> ST s Int
+    insertAll :: GV.GrowVector s (Node c Int) -> Int -> [[c]] -> ST s Int
     insertAll _vnodes len [] = return len
     insertAll vnodes len (word:rest) = loop 0 word >>= \adds -> insertAll vnodes (len + adds) rest
       where
         loop x [] = do
-          MS.modify vnodes (\node -> node{isAccepted = True}) x
+          GV.modify vnodes (\node -> node{isAccepted = True}) x
           return 0
         loop x (c:cs) = do
-          Node accX edgesX <- MS.read vnodes x
+          Node accX edgesX <- GV.read vnodes x
           case Map.lookup c edgesX of
             Just y -> loop y cs
             Nothing -> do
               let node' = Node accX $ Map.insert c len edgesX
-              MS.write vnodes x node'
+              GV.write vnodes x node'
               let restLen = length cs
                   links = zip cs [1 .. restLen]
                   newNodes = [ Node False (Map.singleton a (len + i)) | (a,i) <- links ] ++ [ Node True Map.empty ]
-              for_ (zip [len ..] newNodes) $ uncurry (MS.write vnodes)
+              GV.grow (restLen + 1) vnodes
+              for_ (zip [len ..] newNodes) $ uncurry (GV.write vnodes)
               return (length (c:cs))
 
 instantiate :: (Ord k) => k -> (k -> Node c k) -> ADFA c
 instantiate rootKey stepKey = makeDFA nodes 0
   where
     nodes = V.create $ do
-      vnodes <- MS.new
+      vnodes <- GV.new 0
       substRef <- newSTRef Map.empty
       let assign key = do
             subst <- readSTRef substRef
@@ -171,30 +173,28 @@ instantiate rootKey stepKey = makeDFA nodes 0
               Nothing -> newNode key
           newNode key = do
             subst <- readSTRef substRef
+            GV.grow 1 vnodes
             let x = Map.size subst
             writeSTRef substRef $! Map.insert key x subst
             nodeX <- traverse assign (stepKey key)
-            MS.write vnodes x nodeX
+            GV.write vnodes x nodeX
             return x
       _ <- assign rootKey
-      totalSize <- Map.size <$> readSTRef substRef
-      MS.toMVector totalSize vnodes
+      GV.unsafeToMVector vnodes
 
 treeInstantiate :: k -> (k -> Node c k) -> ADFA c
 treeInstantiate rootKey stepKey = makeDFA nodes 0
   where
     nodes = V.create $ do
-      vnodes <- MS.new
-      counter <- newSTRef (0 :: Int)
+      vnodes <- GV.new 0
       let assign key = do
-            x <- readSTRef counter
-            modifySTRef' counter succ
+            x <- GV.length vnodes
+            GV.grow 1 vnodes
             nodeX <- traverse assign (stepKey key)
-            MS.write vnodes x nodeX
+            GV.write vnodes x nodeX
             return x
       _ <- assign rootKey
-      totalSize <- readSTRef counter
-      MS.toMVector totalSize vnodes
+      GV.unsafeToMVector vnodes
 
 fromTable :: Ord k => k -> [(k, Node c k)] -> Maybe (ADFA c)
 fromTable root nodes =
